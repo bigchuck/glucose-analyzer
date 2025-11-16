@@ -1,7 +1,7 @@
 {
   "data_files": {
-    "libreview_csv": "libreview_data.csv",
-    "meals_json": "meals.json"
+    "libreview_csv": "data/libreview_data.csv",
+    "meals_json": "data/meals.json"
   },
   "spike_detection": {
     "search_window_minutes": 90,

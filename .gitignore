@@ -10,9 +10,9 @@ venv/
 dist/
 build/
 
-# Data files (user-specific)
-libreview_data.csv
-# meals.json is tracked as template, actual user data copied elsewhere
+# User data files
+data/libreview_data.csv
+data/meals.json
 
 # Generated charts
 charts/*.png
