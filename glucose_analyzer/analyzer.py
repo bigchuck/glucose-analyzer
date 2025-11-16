@@ -103,7 +103,13 @@ class GlucoseAnalyzer:
                 print(f"Delay range: {match_stats['min_delay']:.0f} - {match_stats['max_delay']:.0f} minutes")
                 print(f"Average GL: {match_stats['avg_gl']:.1f}")
                 print(f"Average spike magnitude: {match_stats['avg_magnitude']:.1f} mg/dL")
-                
+                if spike_stats['count'] > 0:
+                    print(f"Average magnitude: {spike_stats['avg_magnitude']:.1f} mg/dL")
+                    print(f"Average AUC-70: {spike_stats['avg_auc_70']:.0f} mg/dL*min")
+                    print(f"Average AUC-relative: {spike_stats['avg_auc_relative']:.0f} mg/dL*min")
+                    print(f"Average normalized AUC: {spike_stats['avg_normalized_auc']:.3f}")
+                    if spike_stats.get('avg_recovery_time', 0) > 0:
+                        print(f"Average recovery time: {spike_stats['avg_recovery_time']:.0f} minutes")
                 # Show first few matches
                 print(f"\nFirst {min(3, len(self.match_results['matched']))} matched events:")
                 print("-" * 60)
@@ -116,6 +122,9 @@ class GlucoseAnalyzer:
                     print(f"  Peak: {match.spike.peak_glucose:.0f} mg/dL (+{match.spike.magnitude:.0f})")
                     if match.is_complex:
                         print(f"  [COMPLEX] {len(match.nearby_meals)} nearby meal(s)")
+                    print(f"  AUC-relative: {match.spike.auc_relative:.0f} mg/dL*min, Normalized: {match.spike.normalized_auc:.3f}")
+                    if match.spike.recovery_time:
+                        print(f"  Recovery: {match.spike.recovery_time:.0f} minutes")
             
             # Show unmatched spikes if any
             if match_stats['unmatched_spikes'] > 0:

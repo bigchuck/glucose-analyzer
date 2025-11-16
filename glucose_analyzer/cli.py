@@ -220,6 +220,12 @@ class CLI:
                   f"(+{match.delay_minutes:.0f} min delay)")
             print(f"  Peak:  {match.spike.peak_time.strftime('%H:%M')} at {match.spike.peak_glucose:.0f} mg/dL "
                   f"(+{match.spike.magnitude:.0f} mg/dL)")
+            print(f"  Peak:  {match.spike.peak_time.strftime('%H:%M')} at {match.spike.peak_glucose:.0f} mg/dL "
+                  f"(+{match.spike.magnitude:.0f} mg/dL)")
+            print(f"  AUC-relative: {match.spike.auc_relative:.0f} mg/dL*min, Normalized: {match.spike.normalized_auc:.3f}")
+            if match.spike.recovery_time:
+                print(f"  Recovery: {match.spike.recovery_time:.0f} minutes")
+            print(f"  End:   {match.spike.end_time.strftime('%H:%M')} at {match.spike.end_glucose:.0f} mg/dL")
             print(f"  End:   {match.spike.end_time.strftime('%H:%M')} at {match.spike.end_glucose:.0f} mg/dL")
             print(f"  Duration: {match.spike.duration_minutes:.0f} minutes")
             if match.is_complex:
