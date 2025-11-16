@@ -14,7 +14,7 @@ glucose-analyzer/
 │   ├── parsers/                  # Data input modules
 │   │   └── csv_parser.py        # LibreView CSV parser ✓
 │   ├── analysis/                 # Analysis modules
-│   │   ├── spike_detector.py    # TODO
+│   │   ├── spike_detector.py    # Spike detection ✓
 │   │   ├── meal_matcher.py      # TODO
 │   │   ├── auc_calculator.py    # TODO
 │   │   └── normalizer.py        # TODO
@@ -41,13 +41,14 @@ glucose-analyzer/
 **Completed (✓):**
 - Parse LibreView CSV exports (Type 0 automatic readings)
 - Manual meal logging with glycemic load (GL)
+- **Spike detection with configurable parameters**
 - Group-based temporal analysis
 - CLI interface with interactive commands
 - Configuration system
 - Data persistence (JSON)
 
 **In Development:**
-- Spike detection with configurable parameters
+- Meal-to-spike matching
 - Multiple AUC calculations (AUC-0, AUC-70, AUC-relative)
 - Normalized spike profiles for shape comparison
 - Visual charts (matplotlib PNG output)
@@ -82,7 +83,8 @@ pip install -r requirements.txt
 > group start 2025-11-01:00:00 "baseline period"
 > group end 2025-11-30:23:59
 > stats                            # Show CGM statistics
-> analyze                          # Run analysis (TODO)
+> analyze                          # Detect glucose spikes
+> list spikes                      # Show detected spikes
 > chart group 0                    # Generate charts (TODO)
 > list meals
 > list groups
@@ -97,7 +99,8 @@ pip install -r requirements.txt
 - `group end <timestamp>` - Close current group
 - `bypass <timestamp> <reason>` - Mark unexplained spike
 - `stats` - Show CGM data statistics
-- `analyze` - Run full analysis (TODO)
+- `analyze` - Detect glucose spikes in CGM data
+- `list spikes [start] [end]` - Show detected spikes (optionally filtered)
 - `chart group <n>` - Generate group visualizations (TODO)
 - `chart meal <timestamp>` - Chart individual meal spike (TODO)
 - `list meals [start] [end]` - List meals in date range

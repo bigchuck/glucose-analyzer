@@ -152,6 +152,44 @@ class CLI:
             print(f"  {i}: {group['start']} to {end_str}")
             print(f"     {group['description']}")
     
+    def cmd_list_spikes(self, args):
+        """List detected spikes: list spikes [start] [end]"""
+        if not self.analyzer.detected_spikes:
+            print("No spikes detected yet. Run 'analyze' first.")
+            return
+        
+        start_filter = args[0] if len(args) > 0 else None
+        end_filter = args[1] if len(args) > 1 else None
+        
+        spikes = self.analyzer.detected_spikes
+        
+        # Filter by date range if provided
+        if start_filter or end_filter:
+            filtered_spikes = []
+            for spike in spikes:
+                spike_time_str = spike.start_time.strftime("%Y-%m-%d:%H:%M")
+                if start_filter and spike_time_str < start_filter:
+                    continue
+                if end_filter and spike_time_str > end_filter:
+                    continue
+                filtered_spikes.append(spike)
+            spikes = filtered_spikes
+        
+        if not spikes:
+            print("No spikes found in specified range")
+            return
+        
+        print(f"\nDetected Spikes ({len(spikes)} total):")
+        print("=" * 80)
+        for i, spike in enumerate(spikes):
+            print(f"\nSpike {i+1}:")
+            print(f"  Start: {spike.start_time.strftime('%Y-%m-%d %H:%M')} at {spike.start_glucose:.0f} mg/dL")
+            print(f"  Peak:  {spike.peak_time.strftime('%H:%M')} at {spike.peak_glucose:.0f} mg/dL "
+                  f"(+{spike.magnitude:.0f} mg/dL in {spike.time_to_peak_minutes:.0f} min)")
+            print(f"  End:   {spike.end_time.strftime('%H:%M')} at {spike.end_glucose:.0f} mg/dL "
+                  f"({spike.end_reason})")
+            print(f"  Total duration: {spike.duration_minutes:.0f} minutes")
+    
     def cmd_stats(self, args):
         """Show CGM data statistics"""
         if self.analyzer.cgm_data is None:
@@ -190,6 +228,7 @@ Commands:
   chart meal <timestamp>             Generate single meal chart
   list meals [start] [end]           List meals in date range
   list groups                        Show all groups
+  list spikes [start] [end]          List detected spikes
   stats                              Show CGM data statistics
   help                               Show this help
   quit                               Exit program
@@ -232,8 +271,10 @@ Example: addmeal 2025-11-14:18:00 33
                 self.cmd_list_meals(args[1:])
             elif subcommand == "groups":
                 self.cmd_list_groups(args[1:])
+            elif subcommand == "spikes":
+                self.cmd_list_spikes(args[1:])
             else:
-                print("[ERROR] Unknown list command. Use 'list meals' or 'list groups'")
+                print("[ERROR] Unknown list command. Use 'list meals', 'list groups', or 'list spikes'")
         elif cmd == "addmeal":
             self.cmd_addmeal(args)
         elif cmd == "bypass":

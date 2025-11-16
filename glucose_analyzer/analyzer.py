@@ -6,6 +6,7 @@ from pathlib import Path
 from glucose_analyzer.utils.config import Config
 from glucose_analyzer.utils.data_manager import DataManager
 from glucose_analyzer.parsers.csv_parser import LibreViewParser
+from glucose_analyzer.analysis.spike_detector import SpikeDetector
 
 
 class GlucoseAnalyzer:
@@ -22,6 +23,8 @@ class GlucoseAnalyzer:
         self.data_manager = DataManager(self.config.get('data_files', 'meals_json'))
         self.cgm_data = None
         self.cgm_parser = None
+        self.spike_detector = SpikeDetector(self.config)
+        self.detected_spikes = []
         
         # Create charts directory if it doesn't exist
         charts_dir = self.config.get('output', 'charts_directory')
@@ -60,9 +63,47 @@ class GlucoseAnalyzer:
     
     def run_analysis(self):
         """Run full spike analysis"""
-        print("Analyzing glucose data...")
-        # TODO: Implement analysis
-        print("[INFO] Analysis not yet implemented")
+        if self.cgm_data is None:
+            print("[ERROR] No CGM data loaded. Cannot run analysis.")
+            return False
+        
+        print("Analyzing glucose data for spikes...")
+        
+        # Detect spikes
+        self.detected_spikes = self.spike_detector.detect_spikes(self.cgm_data)
+        
+        # Get statistics
+        stats = self.spike_detector.get_stats(self.detected_spikes)
+        
+        # Display results
+        print(f"\n[OK] Spike detection complete")
+        print(f"Found {stats['count']} spike events\n")
+        
+        if stats['count'] > 0:
+            print("Spike Statistics:")
+            print("=" * 60)
+            print(f"Average magnitude: {stats['avg_magnitude']:.1f} mg/dL")
+            print(f"Maximum magnitude: {stats['max_magnitude']:.1f} mg/dL")
+            print(f"Average peak glucose: {stats['avg_peak']:.1f} mg/dL")
+            print(f"Maximum peak glucose: {stats['max_peak']:.1f} mg/dL")
+            print(f"Average duration: {stats['avg_duration']:.1f} minutes")
+            print(f"Average time to peak: {stats['avg_time_to_peak']:.1f} minutes")
+            print(f"\nSpike end reasons:")
+            for reason, count in stats['end_reasons'].items():
+                print(f"  {reason}: {count}")
+            
+            # Show first few spikes as examples
+            print(f"\nFirst {min(5, len(self.detected_spikes))} spike events:")
+            print("-" * 60)
+            for i, spike in enumerate(self.detected_spikes[:5]):
+                print(f"\nSpike {i+1}:")
+                print(f"  Start: {spike.start_time.strftime('%Y-%m-%d %H:%M')} at {spike.start_glucose:.0f} mg/dL")
+                print(f"  Peak:  {spike.peak_time.strftime('%Y-%m-%d %H:%M')} at {spike.peak_glucose:.0f} mg/dL")
+                print(f"  End:   {spike.end_time.strftime('%Y-%m-%d %H:%M')} at {spike.end_glucose:.0f} mg/dL")
+                print(f"  Magnitude: {spike.magnitude:.0f} mg/dL")
+                print(f"  Duration: {spike.duration_minutes:.0f} minutes")
+        
+        return True
     
     def generate_chart(self, chart_type, *args):
         """
