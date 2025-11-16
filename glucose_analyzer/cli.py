@@ -190,6 +190,75 @@ class CLI:
                   f"({spike.end_reason})")
             print(f"  Total duration: {spike.duration_minutes:.0f} minutes")
     
+    def cmd_list_matches(self, args):
+        """List meal-spike matches: list matches [start] [end]"""
+        if not self.analyzer.match_results:
+            print("No matches yet. Run 'analyze' first.")
+            return
+        
+        start_filter = args[0] if len(args) > 0 else None
+        end_filter = args[1] if len(args) > 1 else None
+        
+        matches = self.analyzer.match_results['matched']
+        
+        # Filter by date range if provided
+        if start_filter or end_filter:
+            matches = self.analyzer.meal_matcher.filter_matches_by_date(
+                matches, start_filter, end_filter
+            )
+        
+        if not matches:
+            print("No matched events found")
+            return
+        
+        print(f"\nMeal-Spike Matches ({len(matches)} total):")
+        print("=" * 80)
+        for i, match in enumerate(matches):
+            print(f"\nMatch {i+1}:")
+            print(f"  Meal:  {match.meal['timestamp']} (GL={match.meal['gl']})")
+            print(f"  Spike: {match.spike.start_time.strftime('%Y-%m-%d %H:%M')} "
+                  f"(+{match.delay_minutes:.0f} min delay)")
+            print(f"  Peak:  {match.spike.peak_time.strftime('%H:%M')} at {match.spike.peak_glucose:.0f} mg/dL "
+                  f"(+{match.spike.magnitude:.0f} mg/dL)")
+            print(f"  End:   {match.spike.end_time.strftime('%H:%M')} at {match.spike.end_glucose:.0f} mg/dL")
+            print(f"  Duration: {match.spike.duration_minutes:.0f} minutes")
+            if match.is_complex:
+                print(f"  [COMPLEX] {len(match.nearby_meals)} nearby meal(s):")
+                for nearby in match.nearby_meals:
+                    print(f"    - {nearby['timestamp']} (GL={nearby['gl']}, "
+                          f"{nearby['minutes_apart']:.0f} min apart)")
+    
+    def cmd_list_unmatched(self, args):
+        """List unmatched spikes and meals"""
+        if not self.analyzer.match_results:
+            print("No analysis results yet. Run 'analyze' first.")
+            return
+        
+        unmatched_spikes = self.analyzer.match_results['unmatched_spikes']
+        unmatched_meals = self.analyzer.match_results['unmatched_meals']
+        
+        if unmatched_spikes:
+            print(f"\nUnmatched Spikes ({len(unmatched_spikes)} total):")
+            print("=" * 80)
+            print("These spikes have no associated meal - possible unexplained events")
+            print()
+            for i, spike in enumerate(unmatched_spikes):
+                print(f"{i+1}. {spike.start_time.strftime('%Y-%m-%d %H:%M')} - "
+                      f"Peak: {spike.peak_glucose:.0f} mg/dL (+{spike.magnitude:.0f} mg/dL), "
+                      f"Duration: {spike.duration_minutes:.0f} min")
+        else:
+            print("\n[OK] No unmatched spikes - all spikes have associated meals")
+        
+        if unmatched_meals:
+            print(f"\nUnmatched Meals ({len(unmatched_meals)} total):")
+            print("=" * 80)
+            print("These meals did not trigger detectable spikes")
+            print()
+            for i, meal in enumerate(unmatched_meals):
+                print(f"{i+1}. {meal['timestamp']} - GL={meal['gl']}")
+        else:
+            print("\n[OK] No unmatched meals - all meals have associated spikes")
+    
     def cmd_stats(self, args):
         """Show CGM data statistics"""
         if self.analyzer.cgm_data is None:
@@ -229,6 +298,8 @@ Commands:
   list meals [start] [end]           List meals in date range
   list groups                        Show all groups
   list spikes [start] [end]          List detected spikes
+  list matches [start] [end]         List meal-spike matches
+  list unmatched                     Show unmatched spikes and meals
   stats                              Show CGM data statistics
   help                               Show this help
   quit                               Exit program
@@ -273,8 +344,12 @@ Example: addmeal 2025-11-14:18:00 33
                 self.cmd_list_groups(args[1:])
             elif subcommand == "spikes":
                 self.cmd_list_spikes(args[1:])
+            elif subcommand == "matches":
+                self.cmd_list_matches(args[1:])
+            elif subcommand == "unmatched":
+                self.cmd_list_unmatched(args[1:])
             else:
-                print("[ERROR] Unknown list command. Use 'list meals', 'list groups', or 'list spikes'")
+                print("[ERROR] Unknown list command. Use 'list meals', 'list groups', 'list spikes', 'list matches', or 'list unmatched'")
         elif cmd == "addmeal":
             self.cmd_addmeal(args)
         elif cmd == "bypass":
