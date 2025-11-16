@@ -1,0 +1,28 @@
+{
+  "data_files": {
+    "libreview_csv": "libreview_data.csv",
+    "meals_json": "meals.json"
+  },
+  "spike_detection": {
+    "search_window_minutes": 90,
+    "proximity_threshold_minutes": 180,
+    "min_spike_magnitude": 40,
+    "min_spike_threshold": 160,
+    "end_criteria": {
+      "return_tolerance": 10,
+      "flat_rate_threshold": 2,
+      "flat_duration_minutes": 15,
+      "max_duration_minutes": 240
+    }
+  },
+  "auc_baselines": {
+    "absolute": 0,
+    "fasting": 70,
+    "relative": "min_of_start_end"
+  },
+  "output": {
+    "charts_directory": "charts",
+    "chart_dpi": 150,
+    "auto_open_charts": true
+  }
+}
