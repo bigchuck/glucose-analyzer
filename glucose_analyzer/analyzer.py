@@ -10,7 +10,7 @@ from glucose_analyzer.analysis.spike_detector import SpikeDetector
 from glucose_analyzer.analysis.meal_matcher import MealMatcher
 from glucose_analyzer.analysis.normalizer import SpikeNormalizer
 from glucose_analyzer.analysis.group_analyzer import GroupAnalyzer
-
+from glucose_analyzer.visualization.charts import ChartGenerator
 
 class GlucoseAnalyzer:
     """Main analyzer application"""
@@ -33,6 +33,7 @@ class GlucoseAnalyzer:
         self.normalizer = SpikeNormalizer()
         self.normalized_profiles = []
         self.group_analyzer = GroupAnalyzer()
+        self.chart_generator = ChartGenerator(self.config)
         
         # Create charts directory if it doesn't exist
         charts_dir = self.config.get('output', 'charts_directory')
@@ -157,12 +158,98 @@ class GlucoseAnalyzer:
         Generate visualization chart
         
         Args:
-            chart_type: Type of chart to generate
+            chart_type: Type of chart to generate ('spike', 'group', 'compare', 'scatter')
             *args: Additional arguments for chart generation
         """
-        print(f"Generating {chart_type} chart...")
-        # TODO: Implement charting
-        print("[INFO] Charting not yet implemented")
+        try:
+            if chart_type == 'spike':
+                return self._chart_spike(*args)
+            elif chart_type == 'group':
+                return self._chart_group(*args)
+            elif chart_type == 'compare':
+                return self._chart_compare(*args)
+            elif chart_type == 'scatter':
+                return self._chart_scatter(*args)
+            else:
+                print(f"[ERROR] Unknown chart type: {chart_type}")
+                return None
+        except Exception as e:
+            print(f"[ERROR] Failed to generate chart: {e}")
+            return None
+    
+    def _chart_spike(self, spike_index, normalize=False):
+        """Generate chart for a single spike"""
+        if not self.detected_spikes:
+            print("[ERROR] No spikes detected. Run 'analyze' first.")
+            return None
+        
+        if spike_index < 0 or spike_index >= len(self.detected_spikes):
+            print(f"[ERROR] Spike index {spike_index} out of range (0-{len(self.detected_spikes)-1})")
+            return None
+        
+        spike = self.detected_spikes[spike_index]
+        
+        if self.cgm_data is None:
+            print("[ERROR] CGM data not available")
+            return None
+        
+        filepath = self.chart_generator.chart_spike(spike, spike_index, self.cgm_data, normalize)
+        print(f"[OK] Chart saved: {filepath}")
+        return filepath
+    
+    def _chart_group(self, group_index, normalize=False):
+        """Generate overlay chart for a group"""
+        if not self.match_results:
+            print("[ERROR] No analysis results. Run 'analyze' first.")
+            return None
+        
+        # Analyze the group
+        analysis = self.analyze_group(group_index)
+        if not analysis:
+            return None
+        
+        filepath = self.chart_generator.chart_group(analysis, normalize)
+        print(f"[OK] Chart saved: {filepath}")
+        return filepath
+    
+    def _chart_compare(self, group1_index, group2_index, normalize=False):
+        """Generate comparison chart for two groups"""
+        if not self.match_results:
+            print("[ERROR] No analysis results. Run 'analyze' first.")
+            return None
+        
+        # Analyze both groups
+        analysis1 = self.analyze_group(group1_index)
+        analysis2 = self.analyze_group(group2_index)
+        
+        if not analysis1 or not analysis2:
+            return None
+        
+        # Get comparison
+        comparison = self.group_analyzer.compare_groups(analysis1, analysis2)
+        
+        if not comparison:
+            print("[ERROR] Failed to compare groups")
+            return None
+        
+        filepath = self.chart_generator.chart_compare(comparison, analysis1, analysis2, normalize)
+        print(f"[OK] Chart saved: {filepath}")
+        return filepath
+    
+    def _chart_scatter(self, group_index):
+        """Generate GL vs AUC scatter plot for a group"""
+        if not self.match_results:
+            print("[ERROR] No analysis results. Run 'analyze' first.")
+            return None
+        
+        # Analyze the group
+        analysis = self.analyze_group(group_index)
+        if not analysis:
+            return None
+        
+        filepath = self.chart_generator.chart_scatter(analysis)
+        print(f"[OK] Chart saved: {filepath}")
+        return filepath
 
     def compare_normalized_groups(self, group1_desc, group2_desc):
         """

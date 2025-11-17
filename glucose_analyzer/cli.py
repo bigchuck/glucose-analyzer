@@ -114,14 +114,71 @@ class CLI:
         """Run analysis"""
         self.analyzer.run_analysis()
     
-    def cmd_chart(self, args):
-        """Generate chart: chart group <n> OR chart meal <timestamp>"""
-        if len(args) < 2:
-            print("[ERROR] Usage: chart group <n> OR chart meal <timestamp>")
+    def cmd_chart_spike(self, args):
+        """Chart a spike: chart spike <n> [--normalize]"""
+        if len(args) < 1:
+            print("[ERROR] Usage: chart spike <n> [--normalize]")
             return
         
-        chart_type = args[0]
-        self.analyzer.generate_chart(chart_type, *args[1:])
+        try:
+            spike_index = int(args[0])
+        except ValueError:
+            print("[ERROR] Spike index must be a number")
+            return
+        
+        # Check for normalize flag
+        normalize = '--normalize' in args
+        
+        self.analyzer.generate_chart('spike', spike_index, normalize)
+    
+    def cmd_chart_group(self, args):
+        """Chart a group: chart group <n> [--normalize]"""
+        if len(args) < 1:
+            print("[ERROR] Usage: chart group <n> [--normalize]")
+            return
+        
+        try:
+            group_index = int(args[0])
+        except ValueError:
+            print("[ERROR] Group index must be a number")
+            return
+        
+        # Check for normalize flag
+        normalize = '--normalize' in args
+        
+        self.analyzer.generate_chart('group', group_index, normalize)
+    
+    def cmd_chart_compare(self, args):
+        """Chart comparison: chart compare <n1> <n2> [--normalize]"""
+        if len(args) < 2:
+            print("[ERROR] Usage: chart compare <n1> <n2> [--normalize]")
+            return
+        
+        try:
+            group1_index = int(args[0])
+            group2_index = int(args[1])
+        except ValueError:
+            print("[ERROR] Group indices must be numbers")
+            return
+        
+        # Check for normalize flag
+        normalize = '--normalize' in args
+        
+        self.analyzer.generate_chart('compare', group1_index, group2_index, normalize)
+    
+    def cmd_chart_scatter(self, args):
+        """Chart scatter plot: chart scatter <n>"""
+        if len(args) < 1:
+            print("[ERROR] Usage: chart scatter <n>")
+            return
+        
+        try:
+            group_index = int(args[0])
+        except ValueError:
+            print("[ERROR] Group index must be a number")
+            return
+        
+        self.analyzer.generate_chart('scatter', group_index)
     
     def cmd_list_meals(self, args):
         """List meals: list meals [start] [end]"""
@@ -501,8 +558,10 @@ Commands:
   compare "group1" "group2"          Compare normalized profiles between groups
   similar <spike_idx> [threshold]    Find spikes with similar shapes (threshold: 0.0-1.0)
   stats                              Show CGM data statistics
-  chart group <n>                    Generate group charts (TODO)
-  chart meal <timestamp>             Generate single meal chart (TODO)
+  chart spike <n> [--normalize]      Chart individual spike
+  chart group <n> [--normalize]      Chart group overlay
+  chart compare <n1> <n2> [--normalize]  Chart group comparison
+  chart scatter <n>                  Chart GL vs AUC scatter
   help                               Show this help
   quit                               Exit program
 
@@ -515,6 +574,10 @@ Examples:
   addmeal 2025-11-14:18:00 33
   analyze group 0                    
   compare groups 0 1 --gl-range 25-35  
+  chart spike 0
+  chart group 0 --normalize
+  chart compare 0 1
+  chart scatter 0
         """)
     
     def cmd_quit(self, args):
@@ -567,8 +630,18 @@ Examples:
             self.cmd_bypass(args)
         elif cmd == "analyze":
             self.cmd_analyze(args)
-        elif cmd == "chart":
-            self.cmd_chart(args)
+        elif cmd == "chart" and len(args) > 0:
+            subcommand = args[0].lower()
+            if subcommand == "spike":
+                self.cmd_chart_spike(args[1:])
+            elif subcommand == "group":
+                self.cmd_chart_group(args[1:])
+            elif subcommand == "compare":
+                self.cmd_chart_compare(args[1:])
+            elif subcommand == "scatter":
+                self.cmd_chart_scatter(args[1:])
+            else:
+                print("[ERROR] Unknown chart command. Use 'chart spike', 'chart group', 'chart compare', or 'chart scatter'")
         elif cmd == "stats":
             self.cmd_stats(args)
         elif cmd == "help":
