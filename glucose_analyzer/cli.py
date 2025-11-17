@@ -488,6 +488,10 @@ Commands:
   group end <timestamp>              Close current group
   bypass <timestamp> <reason>        Mark spike as bypassed
   analyze                            Run full analysis
+  analyze group <n>                  Analyze single group
+  analyze group <n> --gl-range X-Y   Analyze group with GL filter
+  compare groups <n1> <n2>           Compare two groups
+  compare groups <n1> <n2> --gl-range X-Y   Compare with GL filter
   list meals [start] [end]           List meals in date range
   list groups                        Show all groups
   list spikes [start] [end]          List detected spikes
@@ -507,6 +511,10 @@ Examples:
   addmeal 2025-11-14:18:00 33
   compare "baseline" "after medication"
   similar 3 0.8
+Examples:
+  addmeal 2025-11-14:18:00 33
+  analyze group 0                    
+  compare groups 0 1 --gl-range 25-35  
         """)
     
     def cmd_quit(self, args):
@@ -565,16 +573,94 @@ Examples:
             self.cmd_stats(args)
         elif cmd == "help":
             self.cmd_help(args)
-        elif cmd == "quit" or cmd == "exit":
+        elif cmd == "quit" or cmd == "exit" or cmd == "q":
             self.cmd_quit(args)
         elif cmd == "compare":
             self.cmd_compare_groups(args)
         elif cmd == "similar":
             self.cmd_find_similar(args)
-
+        elif cmd == "analyze":
+            if len(args) > 0 and args[0].lower() == "group":
+                self.cmd_analyze_group(args[1:])  # NEW
+            else:
+                self.cmd_analyze(args)
+        elif cmd == "compare" and len(args) > 0 and args[0].lower() == "groups":
+            self.cmd_compare_groups(args[1:])  # NEW
         else:
             print(f"[ERROR] Unknown command: {cmd}. Type 'help' for commands.")
-    
+
+    def cmd_analyze_group(self, args):
+        """Analyze a group: analyze group <n> [--gl-range min-max]"""
+        if len(args) < 1:
+            print("[ERROR] Usage: analyze group <n> [--gl-range min-max]")
+            return
+        
+        try:
+            group_index = int(args[0])
+        except ValueError:
+            print("[ERROR] Group index must be a number")
+            return
+        
+        # Check for GL range filter
+        gl_range = None
+        if len(args) >= 3 and args[1] == '--gl-range':
+            try:
+                parts = args[2].split('-')
+                if len(parts) != 2:
+                    print("[ERROR] GL range format: min-max (e.g., 25-35)")
+                    return
+                min_gl = float(parts[0])
+                max_gl = float(parts[1])
+                gl_range = (min_gl, max_gl)
+            except ValueError:
+                print("[ERROR] Invalid GL range values")
+                return
+        
+        # Analyze the group
+        analysis = self.analyzer.analyze_group(group_index, gl_range)
+        
+        if analysis:
+            output = self.analyzer.group_analyzer.format_group_analysis(analysis)
+            print(output)
+
+    def cmd_compare_groups(self, args):
+        """Compare groups: compare groups <n1> <n2> [--gl-range min-max]"""
+        if len(args) < 2:
+            print("[ERROR] Usage: compare groups <n1> <n2> [--gl-range min-max]")
+            return
+        
+        try:
+            group1_index = int(args[0])
+            group2_index = int(args[1])
+        except ValueError:
+            print("[ERROR] Group indices must be numbers")
+            return
+        
+        # Check for GL range filter
+        gl_range = None
+        if len(args) >= 4 and args[2] == '--gl-range':
+            try:
+                parts = args[3].split('-')
+                if len(parts) != 2:
+                    print("[ERROR] GL range format: min-max (e.g., 25-35)")
+                    return
+                min_gl = float(parts[0])
+                max_gl = float(parts[1])
+                gl_range = (min_gl, max_gl)
+            except ValueError:
+                print("[ERROR] Invalid GL range values")
+                return
+        
+        # Compare the groups
+        comparison = self.analyzer.compare_groups(group1_index, group2_index, gl_range)
+        
+        if comparison:
+            output = self.analyzer.group_analyzer.format_comparison(comparison)
+            print(output)
+            
+            if gl_range:
+                print(f"\nNote: Comparison limited to meals with GL {gl_range[0]}-{gl_range[1]}")
+
     def run(self):
         """Main CLI loop"""
         print("Glucose Spike Analyzer v1.0")

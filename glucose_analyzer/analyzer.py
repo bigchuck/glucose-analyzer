@@ -9,6 +9,7 @@ from glucose_analyzer.parsers.csv_parser import LibreViewParser
 from glucose_analyzer.analysis.spike_detector import SpikeDetector
 from glucose_analyzer.analysis.meal_matcher import MealMatcher
 from glucose_analyzer.analysis.normalizer import SpikeNormalizer
+from glucose_analyzer.analysis.group_analyzer import GroupAnalyzer
 
 
 class GlucoseAnalyzer:
@@ -31,6 +32,7 @@ class GlucoseAnalyzer:
         self.match_results = None
         self.normalizer = SpikeNormalizer()
         self.normalized_profiles = []
+        self.group_analyzer = GroupAnalyzer()
         
         # Create charts directory if it doesn't exist
         charts_dir = self.config.get('output', 'charts_directory')
@@ -205,5 +207,83 @@ class GlucoseAnalyzer:
         
         # Perform comparison
         comparison = self.normalizer.compare_groups(group1_profiles, group2_profiles)
+        
+        return comparison
+    
+    def analyze_group(self, group_index, gl_range=None):
+        """
+        Analyze a specific group
+        
+        Args:
+            group_index: Index of group to analyze
+            gl_range: Optional tuple (min_gl, max_gl) to filter by GL
+            
+        Returns:
+            dict: Analysis results or None if error
+        """
+        if not self.match_results:
+            print("[ERROR] No analysis results. Run 'analyze' first.")
+            return None
+        
+        groups = self.data_manager.data["groups"]
+        if group_index < 0 or group_index >= len(groups):
+            print(f"[ERROR] Group index {group_index} out of range (0-{len(groups)-1})")
+            return None
+        
+        group_info = groups[group_index]
+        
+        # Filter matches by group
+        group_matches = self.group_analyzer.filter_matches_by_group(
+            self.match_results['matched'], 
+            group_info
+        )
+        
+        # Apply GL filter if specified
+        if gl_range:
+            min_gl, max_gl = gl_range
+            group_matches = self.group_analyzer.filter_by_gl_range(group_matches, min_gl, max_gl)
+        
+        # Filter unmatched items by group
+        unmatched_spikes = self.group_analyzer.filter_unmatched_by_group(
+            self.match_results['unmatched_spikes'],
+            group_info
+        )
+        
+        unmatched_meals = self.group_analyzer.filter_unmatched_by_group(
+            self.match_results['unmatched_meals'],
+            group_info
+        )
+        
+        # Analyze the group
+        analysis = self.group_analyzer.analyze_group(
+            group_info, 
+            group_matches, 
+            unmatched_spikes, 
+            unmatched_meals
+        )
+        
+        return analysis
+
+    def compare_groups(self, group1_index, group2_index, gl_range=None):
+        """
+        Compare two groups
+        
+        Args:
+            group1_index: Index of first group
+            group2_index: Index of second group
+            gl_range: Optional tuple (min_gl, max_gl) to filter by GL
+            
+        Returns:
+            GroupComparison object or None if error
+        """
+        # Analyze both groups
+        analysis1 = self.analyze_group(group1_index, gl_range)
+        analysis2 = self.analyze_group(group2_index, gl_range)
+        
+        if not analysis1 or not analysis2:
+            return None
+        
+        # Compare them
+        comparison = self.group_analyzer.compare_groups(analysis1, analysis2)
         
         return comparison
