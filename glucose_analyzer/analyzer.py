@@ -8,6 +8,7 @@ from glucose_analyzer.utils.data_manager import DataManager
 from glucose_analyzer.parsers.csv_parser import LibreViewParser
 from glucose_analyzer.analysis.spike_detector import SpikeDetector
 from glucose_analyzer.analysis.meal_matcher import MealMatcher
+from glucose_analyzer.analysis.normalizer import SpikeNormalizer
 
 
 class GlucoseAnalyzer:
@@ -28,6 +29,8 @@ class GlucoseAnalyzer:
         self.meal_matcher = MealMatcher(self.config)
         self.detected_spikes = []
         self.match_results = None
+        self.normalizer = SpikeNormalizer()
+        self.normalized_profiles = []
         
         # Create charts directory if it doesn't exist
         charts_dir = self.config.get('output', 'charts_directory')
@@ -125,7 +128,16 @@ class GlucoseAnalyzer:
                     print(f"  AUC-relative: {match.spike.auc_relative:.0f} mg/dL*min, Normalized: {match.spike.normalized_auc:.3f}")
                     if match.spike.recovery_time:
                         print(f"  Recovery: {match.spike.recovery_time:.0f} minutes")
-            
+
+                # Normalize matched profiles
+                if match_stats['matched_count'] > 0:
+                    print(f"\nCreating normalized profiles...")
+                    self.normalized_profiles = self.normalizer.normalize_matches(
+                        self.match_results['matched'], 
+                        self.cgm_data
+                    )
+                    print(f"[OK] Normalized {len(self.normalized_profiles)} spike profiles")
+
             # Show unmatched spikes if any
             if match_stats['unmatched_spikes'] > 0:
                 print(f"\n[WARNING] {match_stats['unmatched_spikes']} unexplained spike(s):")
@@ -149,3 +161,49 @@ class GlucoseAnalyzer:
         print(f"Generating {chart_type} chart...")
         # TODO: Implement charting
         print("[INFO] Charting not yet implemented")
+
+    def compare_normalized_groups(self, group1_desc, group2_desc):
+        """
+        Compare normalized profiles between two groups
+        
+        Args:
+            group1_desc: Description of first group
+            group2_desc: Description of second group
+            
+        Returns:
+            dict: Comparison results or None if groups not found
+        """
+        groups = self.data_manager.data["groups"]
+        
+        # Find groups by description
+        group1 = None
+        group2 = None
+        
+        for g in groups:
+            if g['description'] == group1_desc:
+                group1 = g
+            if g['description'] == group2_desc:
+                group2 = g
+        
+        if not group1 or not group2:
+            print("[ERROR] Could not find one or both groups")
+            return None
+        
+        if not self.normalized_profiles:
+            print("[ERROR] No normalized profiles available. Run 'analyze' first.")
+            return None
+        
+        # Filter profiles by group dates
+        group1_profiles = [p for p in self.normalized_profiles
+                        if group1['start'] <= p.spike_start_time <= (group1['end'] or '9999-12-31')]
+        group2_profiles = [p for p in self.normalized_profiles
+                        if group2['start'] <= p.spike_start_time <= (group2['end'] or '9999-12-31')]
+        
+        if not group1_profiles or not group2_profiles:
+            print("[ERROR] One or both groups have no normalized profiles")
+            return None
+        
+        # Perform comparison
+        comparison = self.normalizer.compare_groups(group1_profiles, group2_profiles)
+        
+        return comparison
