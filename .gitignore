@@ -9,6 +9,7 @@ venv/
 *.egg-info/
 dist/
 build/
+data/
 
 # User data files
 data/libreview_data.csv

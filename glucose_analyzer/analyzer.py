@@ -139,7 +139,8 @@ class GlucoseAnalyzer:
                 print(f"\nMatched Meal-Spike Pairs:")
                 print("-" * 80)
                 for i, match in enumerate(self.match_results['matched'], 1):
-                    print(f"\n{i}. Meal: {match.meal['timestamp']} (GL={match.meal['gl']})")
+                    meal_str = ", ".join([f"{m['timestamp']} (GL={m['gl']})" for m in match.meals])
+                    print(f"Meals: {meal_str} (Total GL={match.total_gl})")
                     print(f"   Spike: {match.spike.start_time.strftime('%Y-%m-%d %H:%M')} "
                         f"to {match.spike.end_time.strftime('%H:%M')}")
                     print(f"   Delay: {match.delay_minutes:.0f} minutes")

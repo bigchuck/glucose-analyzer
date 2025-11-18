@@ -5,8 +5,7 @@
     "spikes_manual_json": "data/spikes_manual.json"
   },
   "spike_detection": {
-    "search_window_minutes": 90,
-    "proximity_threshold_minutes": 180,
+    "pre_spike_meal_window": 60,
     "min_spike_magnitude": 40,
     "min_spike_threshold": 160,
     "end_criteria": {
@@ -23,6 +22,7 @@
   },
   "output": {
     "charts_directory": "charts",
+    "charts_dir": "charts",
     "chart_dpi": 150,
     "auto_open_charts": true
   }

@@ -1,40 +1,44 @@
 """
 Meal Matching Module
 Associates detected glucose spikes with logged meals
+Supports multiple meals per spike
 """
 
 from datetime import datetime, timedelta
 
 
 class MealSpikeMatch:
-    """Represents a matched meal and spike event"""
+    """Represents a spike event with associated meals"""
     
     def __init__(self):
-        self.meal = None  # Dict with meal data
+        self.meals = []  # List of meal dicts that contributed to this spike
         self.spike = None  # SpikeEvent object
-        self.delay_minutes = None  # Time from meal to spike start
-        self.is_complex = False  # Multiple meals within proximity
-        self.nearby_meals = []  # Other meals near this one
+        self.total_gl = 0  # Sum of GL from all associated meals
+        self.meal_count = 0  # Number of meals
+        self.meal_delays = []  # Time from each meal to spike start (minutes)
+        self.is_complex = False  # DEPRECATED: All multi-meal spikes are complex
     
     def __repr__(self):
-        if self.meal and self.spike:
-            return (f"MealSpikeMatch(meal={self.meal['timestamp']}, GL={self.meal['gl']}, "
-                    f"spike_start={self.spike.start_time}, delay={self.delay_minutes}min)")
+        if self.meals and self.spike:
+            meal_times = [m['timestamp'] for m in self.meals]
+            return (f"MealSpikeMatch(meals={meal_times}, total_GL={self.total_gl}, "
+                    f"spike_start={self.spike.start_time})")
         return "MealSpikeMatch(unmatched)"
     
     def to_dict(self):
         """Convert to dictionary for JSON serialization"""
         return {
-            'meal': self.meal,
+            'meals': self.meals,
             'spike': self.spike.to_dict() if self.spike else None,
-            'delay_minutes': float(self.delay_minutes) if self.delay_minutes else None,
-            'is_complex': self.is_complex,
-            'nearby_meals': self.nearby_meals
+            'total_gl': self.total_gl,
+            'meal_count': self.meal_count,
+            'meal_delays': self.meal_delays,
+            'is_complex': self.is_complex
         }
 
 
 class MealMatcher:
-    """Matches meals to glucose spikes"""
+    """Matches meals to glucose spikes with multi-meal support"""
     
     def __init__(self, config):
         """
@@ -44,12 +48,12 @@ class MealMatcher:
             config: Config object with matching parameters
         """
         self.config = config
-        self.search_window_minutes = config.get('spike_detection', 'search_window_minutes')
-        self.proximity_threshold_minutes = config.get('spike_detection', 'proximity_threshold_minutes')
+        self.pre_spike_meal_window = config.get('spike_detection', 'pre_spike_meal_window')
     
     def match_meals_to_spikes(self, meals, spikes):
         """
         Match meals to detected spikes
+        Finds ALL meals that contribute to each spike
         
         Args:
             meals: List of meal dicts with 'timestamp' and 'gl'
@@ -63,7 +67,7 @@ class MealMatcher:
             }
         """
         matched = []
-        unmatched_spikes = list(spikes)
+        unmatched_spikes = []
         
         # Convert meal timestamps to datetime objects
         meals_with_dt = []
@@ -75,24 +79,36 @@ class MealMatcher:
         # Sort meals by time
         meals_with_dt.sort(key=lambda m: m['datetime'])
         
-        # Track which meals got matched
+        # Track which meals got matched to at least one spike
         matched_meal_timestamps = set()
         
-        # For each meal, look for matching spike
-        for meal in meals_with_dt:
-            match = self._find_spike_for_meal(meal, spikes)
+        # For each spike, find ALL contributing meals
+        for spike in spikes:
+            contributing_meals = self._find_meals_for_spike(spike, meals_with_dt)
             
-            if match:
+            if contributing_meals:
+                # Create match with multiple meals
+                match = MealSpikeMatch()
+                match.spike = spike
+                match.meals = contributing_meals
+                match.meal_count = len(contributing_meals)
+                match.total_gl = sum(m['gl'] for m in contributing_meals)
+                match.is_complex = len(contributing_meals) > 1
+                
+                # Calculate delays for each meal
+                match.meal_delays = []
+                for meal in contributing_meals:
+                    delay = (spike.start_time - meal['datetime']).total_seconds() / 60
+                    match.meal_delays.append(delay)
+                    matched_meal_timestamps.add(meal['timestamp'])
+                
                 matched.append(match)
-                matched_meal_timestamps.add(meal['timestamp'])
-                if match.spike in unmatched_spikes:
-                    unmatched_spikes.remove(match.spike)
+            else:
+                # Spike with no associated meals
+                unmatched_spikes.append(spike)
         
-        # Create unmatched meals list (meals that didn't get matched)
+        # Create unmatched meals list
         unmatched_meals = [m for m in meals if m['timestamp'] not in matched_meal_timestamps]
-        
-        # Check for complex events (meals in proximity)
-        self._flag_complex_events(matched, meals_with_dt)
         
         return {
             'matched': matched,
@@ -100,128 +116,111 @@ class MealMatcher:
             'unmatched_meals': unmatched_meals
         }
     
-    def _find_spike_for_meal(self, meal, spikes):
+    def _find_meals_for_spike(self, spike, meals_with_dt):
         """
-        Find the spike that matches this meal
+        Find ALL meals that contribute to this spike
+        
+        A meal contributes if it occurs:
+        - Within pre_spike_meal_window before spike start, OR
+        - During the rise phase (between spike start and peak)
+        
+        Meals during plateau or decline are excluded.
         
         Args:
-            meal: Meal dict with 'datetime' key
-            spikes: List of SpikeEvent objects
+            spike: SpikeEvent object
+            meals_with_dt: List of meals with 'datetime' key
             
         Returns:
-            MealSpikeMatch object or None if no match
+            List of meal dicts that contribute to this spike
         """
-        meal_time = meal['datetime']
-        search_end = meal_time + timedelta(minutes=self.search_window_minutes)
+        contributing = []
         
-        # Look for spikes that start within the search window
-        candidates = []
-        for spike in spikes:
-            # Spike must start after meal and within search window
-            if meal_time <= spike.start_time <= search_end:
-                delay = (spike.start_time - meal_time).total_seconds() / 60
-                candidates.append((spike, delay))
+        # Define the time window for contributing meals
+        window_start = spike.start_time - timedelta(minutes=self.pre_spike_meal_window)
+        rise_end = spike.peak_time  # Only meals before peak
         
-        if not candidates:
-            return None
+        for meal in meals_with_dt:
+            meal_time = meal['datetime']
+            
+            # Check if meal is within the contributing window
+            if window_start <= meal_time <= rise_end:
+                contributing.append(meal)
         
-        # If multiple candidates, choose the closest one to the meal
-        candidates.sort(key=lambda x: x[1])
-        best_spike, delay = candidates[0]
+        # Sort by time (earliest first)
+        contributing.sort(key=lambda m: m['datetime'])
         
-        # Create match
-        match = MealSpikeMatch()
-        match.meal = meal
-        match.spike = best_spike
-        match.delay_minutes = delay
-        
-        return match
+        return contributing
     
-    def _flag_complex_events(self, matches, all_meals):
+    def get_stats(self, matched):
         """
-        Flag matches where multiple meals are close together
+        Get statistics about matches
         
         Args:
-            matches: List of MealSpikeMatch objects
-            all_meals: List of all meals with datetime
-        """
-        for match in matches:
-            if not match.meal:
-                continue
-            
-            meal_time = match.meal['datetime']
-            nearby = []
-            
-            # Look for other meals within proximity threshold
-            for other_meal in all_meals:
-                if other_meal['timestamp'] == match.meal['timestamp']:
-                    continue  # Skip self
-                
-                other_time = other_meal['datetime']
-                time_diff = abs((other_time - meal_time).total_seconds() / 60)
-                
-                if time_diff <= self.proximity_threshold_minutes:
-                    nearby.append({
-                        'timestamp': other_meal['timestamp'],
-                        'gl': other_meal['gl'],
-                        'minutes_apart': time_diff
-                    })
-            
-            if nearby:
-                match.is_complex = True
-                match.nearby_meals = nearby
-    
-    def get_stats(self, match_results):
-        """
-        Get statistics about meal-spike matching
-        
-        Args:
-            match_results: Dict from match_meals_to_spikes()
+            matched: List of MealSpikeMatch objects or dicts
             
         Returns:
-            dict: Statistics about matching
+            dict: Statistics
         """
-        matched = match_results['matched']
-        unmatched_spikes = match_results['unmatched_spikes']
-        unmatched_meals = match_results['unmatched_meals']
+        if not matched:
+            return {
+                'total_matches': 0,
+                'single_meal_spikes': 0,
+                'multi_meal_spikes': 0,
+                'avg_meals_per_spike': 0,
+                'avg_total_gl': 0,
+                'avg_magnitude': 0,
+                'avg_earliest_delay': 0
+            }
+        
+        # Helper function to safely get attribute from object or dict
+        def get_val(item, attr):
+            if isinstance(item, dict):
+                return item.get(attr)
+            return getattr(item, attr, None)
+        
+        # Count single vs multi-meal spikes
+        single_meal = sum(1 for m in matched if get_val(m, 'meal_count') == 1)
+        multi_meal = sum(1 for m in matched if get_val(m, 'meal_count') > 1)
+        
+        # Extract values
+        total_gl_values = [get_val(m, 'total_gl') for m in matched]
+        
+        # Handle magnitude - might be in spike object or dict
+        magnitudes = []
+        for m in matched:
+            spike = get_val(m, 'spike')
+            if spike:
+                if isinstance(spike, dict):
+                    magnitudes.append(spike.get('magnitude', 0))
+                else:
+                    magnitudes.append(getattr(spike, 'magnitude', 0))
+        
+        # Get earliest meal delay for each spike
+        earliest_delays = []
+        for m in matched:
+            delays = get_val(m, 'meal_delays')
+            if delays:
+                earliest_delays.append(min(delays))
         
         stats = {
-            'total_meals': len(matched) + len(unmatched_meals),
-            'total_spikes': len(matched) + len(unmatched_spikes),
-            'matched_count': len(matched),
-            'unmatched_spikes': len(unmatched_spikes),
-            'unmatched_meals': len(unmatched_meals),
-            'complex_events': sum(1 for m in matched if m.is_complex)
+            'total_matches': len(matched),
+            'single_meal_spikes': single_meal,
+            'multi_meal_spikes': multi_meal,
+            'avg_meals_per_spike': sum(get_val(m, 'meal_count') or 0 for m in matched) / len(matched),
+            'avg_total_gl': sum(total_gl_values) / len(total_gl_values) if total_gl_values else 0,
+            'min_gl': min(total_gl_values) if total_gl_values else 0,
+            'max_gl': max(total_gl_values) if total_gl_values else 0,
+            'avg_magnitude': sum(magnitudes) / len(magnitudes) if magnitudes else 0,
+            'avg_earliest_delay': sum(earliest_delays) / len(earliest_delays) if earliest_delays else 0,
+            'min_delay': min(earliest_delays) if earliest_delays else 0,
+            'max_delay': max(earliest_delays) if earliest_delays else 0
         }
-        
-        if matched:
-            stats['avg_delay'] = sum(m.delay_minutes for m in matched) / len(matched)
-            stats['min_delay'] = min(m.delay_minutes for m in matched)
-            stats['max_delay'] = max(m.delay_minutes for m in matched)
-            
-            # GL statistics for matched meals
-            gls = [m.meal['gl'] for m in matched]
-            stats['avg_gl'] = sum(gls) / len(gls)
-            stats['min_gl'] = min(gls)
-            stats['max_gl'] = max(gls)
-            
-            # Spike magnitude for matched spikes
-            magnitudes = [m.spike.magnitude for m in matched]
-            stats['avg_magnitude'] = sum(magnitudes) / len(magnitudes)
-        else:
-            stats['avg_delay'] = 0
-            stats['min_delay'] = 0
-            stats['max_delay'] = 0
-            stats['avg_gl'] = 0
-            stats['min_gl'] = 0
-            stats['max_gl'] = 0
-            stats['avg_magnitude'] = 0
         
         return stats
     
     def get_unmatched_spike_summary(self, unmatched_spikes):
         """
-        Get summary of unmatched spikes (potential unexplained events)
+        Get summary of unmatched spikes (unexplained events)
         
         Args:
             unmatched_spikes: List of SpikeEvent objects without meals
@@ -245,7 +244,7 @@ class MealMatcher:
         Filter matches by date range
         
         Args:
-            matches: List of MealSpikeMatch objects
+            matches: List of MealSpikeMatch objects or dicts
             start_date: Optional start datetime string (YYYY-MM-DD:HH:MM)
             end_date: Optional end datetime string (YYYY-MM-DD:HH:MM)
             
@@ -257,11 +256,19 @@ class MealMatcher:
         
         filtered = []
         for match in matches:
-            meal_time_str = match.meal['timestamp']
+            # Handle both object and dict
+            if isinstance(match, dict):
+                spike = match.get('spike')
+                if isinstance(spike, dict):
+                    spike_time_str = spike.get('start_time', '')
+                else:
+                    spike_time_str = spike.start_time.strftime('%Y-%m-%d:%H:%M') if spike else ''
+            else:
+                spike_time_str = match.spike.start_time.strftime('%Y-%m-%d:%H:%M') if match.spike else ''
             
-            if start_date and meal_time_str < start_date:
+            if start_date and spike_time_str < start_date:
                 continue
-            if end_date and meal_time_str > end_date:
+            if end_date and spike_time_str > end_date:
                 continue
             
             filtered.append(match)

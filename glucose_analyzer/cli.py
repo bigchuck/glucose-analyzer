@@ -608,29 +608,12 @@ class CLI:
   chart group <n> [--normalize]      Chart group overlay
   chart compare <n1> <n2> [--normalize]  Chart group comparison
   chart scatter <n>                  Chart GL vs AUC scatter
+  timeline <date>                    24-hour chart for specific date")
+  timeline-range <start> <end>       Charts for date range")
+  overview <start> <end>             Multi-day condensed overview")
+  today                              Timeline for current date")
   help                               Show this help
   quit                               Exit program
-
-Timestamp format: YYYY-MM-DD:HH:MM (24-hour)
-Examples:
-  addspike 2025-11-05
-  addmeal 2025-11-14:18:00 33
-  analyze
-  analyze --auto
-  list spikes
-  chart spike 1              
-Examples:
-  addmeal 2025-11-14:18:00 33
-  compare "baseline" "after medication"
-  similar 3 0.8
-Examples:
-  addmeal 2025-11-14:18:00 33
-  analyze group 0                    
-  compare groups 0 1 --gl-range 25-35  
-  chart spike 0
-  chart group 0 --normalize
-  chart compare 0 1
-  chart scatter 0
         """)
     
     def cmd_quit(self, args):
@@ -714,8 +697,143 @@ Examples:
                 self.cmd_analyze(args)
         elif cmd == "compare" and len(args) > 0 and args[0].lower() == "groups":
             self.cmd_compare_groups(args[1:])  # NEW
+        elif cmd == 'timeline':
+            self.cmd_timeline(args)
+        elif cmd == 'timeline-range':
+            self.cmd_timeline_range(args)
+        elif cmd == 'overview':
+            self.cmd_overview(args)
+        elif cmd == 'today':
+            self.cmd_today(args)
         else:
             print(f"[ERROR] Unknown command: {cmd}. Type 'help' for commands.")
+
+    def cmd_timeline(self, args):
+        """
+        Generate 24-hour timeline chart for a specific date
+        Usage: timeline YYYY-MM-DD
+        Example: timeline 2025-11-14
+        """
+        if len(args) < 2:
+            print("Usage: timeline YYYY-MM-DD")
+            return
+        
+        date_str = args[1]
+        
+        # Validate date format
+        try:
+            datetime.strptime(date_str, '%Y-%m-%d')
+        except ValueError:
+            print("Invalid date format. Use YYYY-MM-DD")
+            return
+        
+        # Ensure analysis has been run
+        if not self.analyzer.matches:
+            print("No analysis data. Run 'analyze' first.")
+            return
+        
+        # Import visualizer
+        from glucose_analyzer.visualization.timeline_visualizer import TimelineVisualizer
+        
+        visualizer = TimelineVisualizer(self.config)
+        
+        print(f"\nGenerating timeline for {date_str}...")
+        
+        chart_path = visualizer.plot_day_timeline(
+            date=date_str,
+            cgm_data=self.analyzer.cgm_readings,
+            meals=self.data_manager.meals,
+            matches=self.analyzer.matches,
+            unmatched_spikes=self.analyzer.unmatched_spikes
+        )
+        
+        if chart_path:
+            print(f"Timeline saved: {chart_path}")
+            print(f"Open with: xdg-open {chart_path}  # Linux")
+            print(f"         : open {chart_path}      # macOS")
+            print(f"         : start {chart_path}     # Windows")
+        else:
+            print("No data found for this date.")
+
+    def cmd_timeline_range(self, args):
+        """
+        Generate timeline charts for a date range (one chart per day)
+        Usage: timeline-range YYYY-MM-DD YYYY-MM-DD
+        Example: timeline-range 2025-11-01 2025-11-07
+        """
+        if len(args) < 3:
+            print("Usage: timeline-range START_DATE END_DATE")
+            print("Example: timeline-range 2025-11-01 2025-11-07")
+            return
+        
+        start_date = args[1]
+        end_date = args[2]
+        
+        # Validate dates
+        try:
+            datetime.strptime(start_date, '%Y-%m-%d')
+            datetime.strptime(end_date, '%Y-%m-%d')
+        except ValueError:
+            print("Invalid date format. Use YYYY-MM-DD")
+            return
+        
+        if not self.analyzer.matches:
+            print("No analysis data. Run 'analyze' first.")
+            return
+        
+        from glucose_analyzer.visualization.timeline_visualizer import TimelineVisualizer
+        
+        visualizer = TimelineVisualizer(self.config)
+        
+        print(f"\nGenerating timelines for {start_date} to {end_date}...")
+        
+        chart_paths = visualizer.plot_date_range(
+            start_date=start_date,
+            end_date=end_date,
+            cgm_data=self.analyzer.cgm_readings,
+            meals=self.data_manager.meals,
+            matches=self.analyzer.matches,
+            unmatched_spikes=self.analyzer.unmatched_spikes
+        )
+        
+        if chart_paths:
+            print(f"\n{len(chart_paths)} timeline(s) generated:")
+            for path in chart_paths:
+                print(f"  - {path}")
+            print(f"\nAll charts saved to: {self.config.get('output', 'charts_dir')}/")
+        else:
+            print("No data found for this date range.")
+
+    def cmd_today(self, args):
+        """
+        Generate timeline for today's date
+        Usage: today
+        """
+        if not self.analyzer.matches:
+            print("No analysis data. Run 'analyze' first.")
+            return
+        
+        from glucose_analyzer.visualization.timeline_visualizer import TimelineVisualizer
+        from datetime import datetime
+        
+        today = datetime.now().strftime('%Y-%m-%d')
+        
+        visualizer = TimelineVisualizer(self.config)
+        
+        print(f"\nGenerating timeline for today ({today})...")
+        
+        chart_path = visualizer.plot_day_timeline(
+            date=today,
+            cgm_data=self.analyzer.cgm_readings,
+            meals=self.data_manager.meals,
+            matches=self.analyzer.matches,
+            unmatched_spikes=self.analyzer.unmatched_spikes
+        )
+        
+        if chart_path:
+            print(f"Timeline saved: {chart_path}")
+        else:
+            print("No data found for today.")
 
     def cmd_analyze_group(self, args):
         """Analyze a group: analyze group <n> [--gl-range min-max]"""
