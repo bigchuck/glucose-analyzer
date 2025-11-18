@@ -1,8 +1,11 @@
 """Command-line interface for Glucose Analyzer"""
 
 from datetime import datetime
+from pathlib import Path
+import json
 
 from glucose_analyzer.analyzer import GlucoseAnalyzer
+from glucose_analyzer.analysis.spike_manual import add_spike_interactive
 
 
 class CLI:
@@ -111,8 +114,20 @@ class CLI:
         print(f"[OK] Spike at {timestamp_str} bypassed: {reason}")
     
     def cmd_analyze(self, args):
-        """Run analysis"""
-        self.analyzer.run_analysis()
+        """Run analysis: analyze [--auto]"""
+        # Check for --auto flag
+        auto_mode = '--auto' in args
+        
+        if auto_mode:
+            print("[INFO] Running AUTO spike detection (legacy mode)...")
+        else:
+            print("[INFO] Using manual spikes from spikes_manual.json...")
+        
+        success = self.analyzer.run_analysis(auto=auto_mode)
+        
+        if not success and not auto_mode:
+            print("\n[TIP] Define spikes with: addspike YYYY-MM-DD")
+            print("[TIP] Or use auto-detection: analyze --auto")
     
     def cmd_chart_spike(self, args):
         """Chart a spike: chart spike <n> [--normalize]"""
@@ -121,16 +136,23 @@ class CLI:
             return
         
         try:
-            spike_index = int(args[0])
+            user_spike_num = int(args[0])  # User enters 1-based
         except ValueError:
-            print("[ERROR] Spike index must be a number")
+            print("[ERROR] Spike number must be a number")
+            return
+        
+        # Convert to 0-based index for internal use
+        spike_index = user_spike_num - 1
+        
+        if spike_index < 0:
+            print("[ERROR] Spike number must be >= 1")
             return
         
         # Check for normalize flag
         normalize = '--normalize' in args
         
-        self.analyzer.generate_chart('spike', spike_index, normalize)
-    
+        self.analyzer.generate_chart('spike', spike_index, normalize)    
+
     def cmd_chart_group(self, args):
         """Chart a group: chart group <n> [--normalize]"""
         if len(args) < 1:
@@ -210,42 +232,65 @@ class CLI:
             print(f"     {group['description']}")
     
     def cmd_list_spikes(self, args):
-        """List detected spikes: list spikes [start] [end]"""
-        if not self.analyzer.detected_spikes:
-            print("No spikes detected yet. Run 'analyze' first.")
+        """List manually defined spikes"""
+        json_path = Path(self.analyzer.config.get('data_files', 'spikes_manual_json'))
+        
+        if not json_path.exists():
+            print("[INFO] No manual spikes defined yet.")
+            print("[TIP] Use 'addspike YYYY-MM-DD' to add spikes interactively.")
             return
         
-        start_filter = args[0] if len(args) > 0 else None
-        end_filter = args[1] if len(args) > 1 else None
-        
-        spikes = self.analyzer.detected_spikes
-        
-        # Filter by date range if provided
-        if start_filter or end_filter:
+        try:
+            with open(json_path, 'r') as f:
+                spikes = json.load(f)
+            
+            if not spikes:
+                print("[INFO] No manual spikes defined yet.")
+                return
+            
+            # Parse date range if provided
+            start_filter = None
+            end_filter = None
+            if len(args) >= 1:
+                try:
+                    start_filter = datetime.strptime(args[0], '%Y-%m-%d')
+                except ValueError:
+                    print("[ERROR] Invalid start date format. Use YYYY-MM-DD")
+                    return
+            if len(args) >= 2:
+                try:
+                    end_filter = datetime.strptime(args[1], '%Y-%m-%d')
+                except ValueError:
+                    print("[ERROR] Invalid end date format. Use YYYY-MM-DD")
+                    return
+            
+            # Filter spikes by date range
             filtered_spikes = []
             for spike in spikes:
-                spike_time_str = spike.start_time.strftime("%Y-%m-%d:%H:%M")
-                if start_filter and spike_time_str < start_filter:
+                start_time = datetime.fromisoformat(spike['start'])
+                if start_filter and start_time < start_filter:
                     continue
-                if end_filter and spike_time_str > end_filter:
+                if end_filter and start_time > end_filter:
                     continue
                 filtered_spikes.append(spike)
-            spikes = filtered_spikes
+            
+            if not filtered_spikes:
+                print("[INFO] No spikes found in specified date range.")
+                return
+            
+            print(f"\nManually Defined Spikes ({len(filtered_spikes)} total):")
+            print("=" * 80)
+            
+            for i, spike in enumerate(filtered_spikes, 1):
+                start = datetime.fromisoformat(spike['start'])
+                end = datetime.fromisoformat(spike['end'])
+                duration = (end - start).total_seconds() / 60
+                
+                print(f"\nSpike {i}: {start.strftime('%Y-%m-%d %H:%M')} to {end.strftime('%H:%M')}")
+                print(f"  Duration: {duration:.0f} minutes")
         
-        if not spikes:
-            print("No spikes found in specified range")
-            return
-        
-        print(f"\nDetected Spikes ({len(spikes)} total):")
-        print("=" * 80)
-        for i, spike in enumerate(spikes):
-            print(f"\nSpike {i+1}:")
-            print(f"  Start: {spike.start_time.strftime('%Y-%m-%d %H:%M')} at {spike.start_glucose:.0f} mg/dL")
-            print(f"  Peak:  {spike.peak_time.strftime('%H:%M')} at {spike.peak_glucose:.0f} mg/dL "
-                  f"(+{spike.magnitude:.0f} mg/dL in {spike.time_to_peak_minutes:.0f} min)")
-            print(f"  End:   {spike.end_time.strftime('%H:%M')} at {spike.end_glucose:.0f} mg/dL "
-                  f"({spike.end_reason})")
-            print(f"  Total duration: {spike.duration_minutes:.0f} minutes")
+        except Exception as e:
+            print(f"[ERROR] Failed to load manual spikes: {e}")
     
     def cmd_list_matches(self, args):
         """List meal-spike matches: list matches [start] [end]"""
@@ -539,19 +584,20 @@ class CLI:
     def cmd_help(self, args):
         """Show help"""
         print("""
-Commands:
   addmeal <timestamp> <gl>           Add meal entry
+  addspike <yyyy-mm-dd>              Add spike interactively (click start/end on chart)
   group start <timestamp> <desc>     Start new analysis group
   group end <timestamp>              Close current group
   bypass <timestamp> <reason>        Mark spike as bypassed
-  analyze                            Run full analysis
+  analyze                            Analyze using manual spikes (default)
+  analyze --auto                     Analyze using auto spike detection (legacy)
   analyze group <n>                  Analyze single group
   analyze group <n> --gl-range X-Y   Analyze group with GL filter
   compare groups <n1> <n2>           Compare two groups
   compare groups <n1> <n2> --gl-range X-Y   Compare with GL filter
   list meals [start] [end]           List meals in date range
   list groups                        Show all groups
-  list spikes [start] [end]          List detected spikes
+  list spikes [start] [end]          List manually defined spikes
   list matches [start] [end]         List meal-spike matches
   list unmatched                     Show unmatched spikes and meals
   list profiles [start] [end]        List normalized spike profiles
@@ -566,6 +612,13 @@ Commands:
   quit                               Exit program
 
 Timestamp format: YYYY-MM-DD:HH:MM (24-hour)
+Examples:
+  addspike 2025-11-05
+  addmeal 2025-11-14:18:00 33
+  analyze
+  analyze --auto
+  list spikes
+  chart spike 1              
 Examples:
   addmeal 2025-11-14:18:00 33
   compare "baseline" "after medication"
@@ -626,6 +679,8 @@ Examples:
                 print("[ERROR] Unknown list command. Use 'list meals', 'list groups', 'list spikes', 'list matches', 'list unmatched', or 'list profiles'")
         elif cmd == "addmeal":
             self.cmd_addmeal(args)
+        elif cmd == "addspike":
+            self.cmd_addspike_interactive(args)
         elif cmd == "bypass":
             self.cmd_bypass(args)
         elif cmd == "analyze":
@@ -733,6 +788,34 @@ Examples:
             
             if gl_range:
                 print(f"\nNote: Comparison limited to meals with GL {gl_range[0]}-{gl_range[1]}")
+
+    def cmd_addspike_interactive(self, args):
+        """Add spike interactively: addspike YYYY-MM-DD"""
+        if len(args) < 1:
+            print("[ERROR] Usage: addspike YYYY-MM-DD")
+            return
+        
+        date_str = args[0]
+        
+        # Validate date format
+        try:
+            from datetime import datetime
+            datetime.strptime(date_str, '%Y-%m-%d')
+        except ValueError:
+            print("[ERROR] Invalid date format. Use YYYY-MM-DD")
+            return
+        
+        csv_path = Path(self.analyzer.config.get('data_files', 'libreview_csv'))
+        json_path = Path(self.analyzer.config.get('data_files', 'spikes_manual_json'))
+        
+        if not csv_path.exists():
+            print(f"[ERROR] CGM data file not found: {csv_path}")
+            return
+        
+        try:
+            add_spike_interactive(date_str, csv_path, json_path)
+        except Exception as e:
+            print(f"[ERROR] Failed to add spike: {e}")
 
     def run(self):
         """Main CLI loop"""

@@ -11,6 +11,7 @@ from glucose_analyzer.analysis.meal_matcher import MealMatcher
 from glucose_analyzer.analysis.normalizer import SpikeNormalizer
 from glucose_analyzer.analysis.group_analyzer import GroupAnalyzer
 from glucose_analyzer.visualization.charts import ChartGenerator
+from glucose_analyzer.analysis.spike_manual import load_manual_spikes
 
 class GlucoseAnalyzer:
     """Main analyzer application"""
@@ -70,67 +71,86 @@ class GlucoseAnalyzer:
             print(f"[ERROR] Failed to load CGM data: {e}")
             return False
     
-    def run_analysis(self):
-        """Run full spike analysis"""
+    def run_analysis(self, auto=False):
+        """
+        Run spike analysis and meal matching
+        
+        Args:
+            auto: If True, use auto spike detection. If False (default), load manual spikes.
+        
+        Returns:
+            bool: True if analysis completed successfully
+        """
         if self.cgm_data is None:
             print("[ERROR] No CGM data loaded. Cannot run analysis.")
             return False
         
-        print("Analyzing glucose data for spikes...")
+        print("\n" + "="*80)
+        print("GLUCOSE SPIKE ANALYSIS")
+        print("="*80)
         
-        # Detect spikes
-        self.detected_spikes = self.spike_detector.detect_spikes(self.cgm_data)
-        
-        # Get statistics
-        spike_stats = self.spike_detector.get_stats(self.detected_spikes)
-        
-        # Display spike results
-        print(f"\n[OK] Spike detection complete")
-        print(f"Found {spike_stats['count']} spike events")
-        
-        # Match meals to spikes
-        meals = self.data_manager.get_meals()
-        if meals:
-            print(f"\nMatching {len(meals)} meals to spikes...")
-            self.match_results = self.meal_matcher.match_meals_to_spikes(meals, self.detected_spikes)
-            match_stats = self.meal_matcher.get_stats(self.match_results)
+        # Step 1: Get spikes (manual or auto)
+        if auto:
+            print("\n[INFO] Using AUTO spike detection (legacy mode)...")
+            print("[INFO] Detecting glucose spikes in CGM data...")
+            self.detected_spikes = self.spike_detector.detect_spikes(self.cgm_data)
             
-            print(f"\n[OK] Meal matching complete")
-            print(f"Matched: {match_stats['matched_count']} meal-spike pairs")
-            print(f"Unmatched spikes: {match_stats['unmatched_spikes']}")
-            print(f"Unmatched meals: {match_stats['unmatched_meals']}")
-            if match_stats['complex_events'] > 0:
-                print(f"Complex events (multiple meals nearby): {match_stats['complex_events']}")
+            if not self.detected_spikes:
+                print("[WARNING] No spikes detected with current thresholds")
+                return False
+            
+            print(f"[OK] Detected {len(self.detected_spikes)} spike(s)")
+        else:
+            print("\n[INFO] Loading manual spikes from JSON...")
+            json_path = Path(self.config.get('data_files', 'spikes_manual_json'))
+            self.detected_spikes = load_manual_spikes(json_path, self.cgm_data)
+            
+            if not self.detected_spikes:
+                print("[ERROR] No manual spikes found.")
+                print("[INFO] Use 'addspike YYYY-MM-DD' to define spikes interactively.")
+                print("[INFO] Or use 'analyze --auto' for automatic spike detection.")
+                return False
+            
+            print(f"[OK] Loaded {len(self.detected_spikes)} manual spike(s)")
+        
+        # Show spike summary
+        for i, spike in enumerate(self.detected_spikes, 1):
+            print(f"\nSpike {i}: {spike.start_time.strftime('%Y-%m-%d %H:%M')} to "
+                f"{spike.end_time.strftime('%H:%M')}")
+            print(f"  Duration: {spike.duration_minutes:.0f} min, "
+                f"Peak: {spike.peak_glucose:.0f} mg/dL (+{spike.magnitude:.0f})")
+            print(f"  AUC-relative: {spike.auc_relative:.0f} mg/dL*min")
+        
+        # Step 2: Match meals with spikes
+        meals = self.data_manager.data['meals']
+        
+        if meals:
+            print(f"\n[INFO] Matching {len(meals)} meal(s) with {len(self.detected_spikes)} spike(s)...")
+            self.match_results = self.meal_matcher.match_meals_to_spikes(
+                meals, 
+                self.detected_spikes
+            )
+            
+            match_stats = self.meal_matcher.get_match_stats(self.match_results)
+            
+            print(f"\n[OK] Matched {match_stats['matched_count']} meal(s) to spikes")
             
             if match_stats['matched_count'] > 0:
-                print(f"\nMatched Event Statistics:")
-                print("=" * 60)
-                print(f"Average delay (meal to spike): {match_stats['avg_delay']:.1f} minutes")
-                print(f"Delay range: {match_stats['min_delay']:.0f} - {match_stats['max_delay']:.0f} minutes")
-                print(f"Average GL: {match_stats['avg_gl']:.1f}")
-                print(f"Average spike magnitude: {match_stats['avg_magnitude']:.1f} mg/dL")
-                if spike_stats['count'] > 0:
-                    print(f"Average magnitude: {spike_stats['avg_magnitude']:.1f} mg/dL")
-                    print(f"Average AUC-70: {spike_stats['avg_auc_70']:.0f} mg/dL*min")
-                    print(f"Average AUC-relative: {spike_stats['avg_auc_relative']:.0f} mg/dL*min")
-                    print(f"Average normalized AUC: {spike_stats['avg_normalized_auc']:.3f}")
-                    if spike_stats.get('avg_recovery_time', 0) > 0:
-                        print(f"Average recovery time: {spike_stats['avg_recovery_time']:.0f} minutes")
-                # Show first few matches
-                print(f"\nFirst {min(3, len(self.match_results['matched']))} matched events:")
-                print("-" * 60)
-                for i, match in enumerate(self.match_results['matched'][:3]):
-                    print(f"\nMatch {i+1}:")
-                    print(f"  Meal: {match.meal['timestamp']} (GL={match.meal['gl']})")
-                    print(f"  Spike: {match.spike.start_time.strftime('%Y-%m-%d %H:%M')} "
-                          f"to {match.spike.end_time.strftime('%H:%M')}")
-                    print(f"  Delay: {match.delay_minutes:.0f} minutes")
-                    print(f"  Peak: {match.spike.peak_glucose:.0f} mg/dL (+{match.spike.magnitude:.0f})")
+                print(f"\nMatched Meal-Spike Pairs:")
+                print("-" * 80)
+                for i, match in enumerate(self.match_results['matched'], 1):
+                    print(f"\n{i}. Meal: {match.meal['timestamp']} (GL={match.meal['gl']})")
+                    print(f"   Spike: {match.spike.start_time.strftime('%Y-%m-%d %H:%M')} "
+                        f"to {match.spike.end_time.strftime('%H:%M')}")
+                    print(f"   Delay: {match.delay_minutes:.0f} minutes")
+                    print(f"   Duration: {match.spike.duration_minutes:.0f} minutes")
+                    print(f"   Peak: {match.spike.peak_glucose:.0f} mg/dL (+{match.spike.magnitude:.0f})")
                     if match.is_complex:
-                        print(f"  [COMPLEX] {len(match.nearby_meals)} nearby meal(s)")
-                    print(f"  AUC-relative: {match.spike.auc_relative:.0f} mg/dL*min, Normalized: {match.spike.normalized_auc:.3f}")
+                        print(f"   [COMPLEX] {len(match.nearby_meals)} nearby meal(s)")
+                    print(f"   AUC-relative: {match.spike.auc_relative:.0f} mg/dL*min, "
+                        f"Normalized: {match.spike.normalized_auc:.3f}")
                     if match.spike.recovery_time:
-                        print(f"  Recovery: {match.spike.recovery_time:.0f} minutes")
+                        print(f"   Recovery: {match.spike.recovery_time:.0f} minutes")
 
                 # Normalize matched profiles
                 if match_stats['matched_count'] > 0:
@@ -146,13 +166,13 @@ class GlucoseAnalyzer:
                 print(f"\n[WARNING] {match_stats['unmatched_spikes']} unexplained spike(s):")
                 for spike in self.match_results['unmatched_spikes'][:3]:
                     print(f"  {spike.start_time.strftime('%Y-%m-%d %H:%M')} - "
-                          f"Peak: {spike.peak_glucose:.0f} mg/dL (+{spike.magnitude:.0f})")
+                        f"Peak: {spike.peak_glucose:.0f} mg/dL (+{spike.magnitude:.0f})")
         else:
             print("\n[INFO] No meals logged. Add meals with 'addmeal' to enable matching.")
             print("[INFO] Spike detection complete without meal matching.")
         
-        return True
-    
+        return True    
+
     def generate_chart(self, chart_type, *args):
         """
         Generate visualization chart

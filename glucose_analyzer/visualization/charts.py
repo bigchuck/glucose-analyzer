@@ -48,10 +48,10 @@ class ChartGenerator:
         
         Args:
             spike: Spike object
-            spike_index: Index number of spike for display
-            cgm_data: DataFrame with CGM readings
+            spike_index: 0-based internal index
+            cgm_data: DataFrame with CGM data
             normalize: If True, normalize glucose to 0-1 scale
-            
+
         Returns:
             str: Path to saved chart file
         """
@@ -86,6 +86,9 @@ class ChartGenerator:
             peak_y = spike.peak_glucose
             title_suffix = ''
         
+        # Display as 1-based for user
+        user_spike_num = spike_index + 1
+
         # Create figure
         fig, ax = plt.subplots(figsize=(10, 6), dpi=self.dpi)
         
@@ -127,7 +130,7 @@ class ChartGenerator:
         # Formatting
         ax.set_xlabel('Minutes from Spike Start', fontsize=12)
         ax.set_ylabel(ylabel, fontsize=12)
-        ax.set_title(f'Spike {spike_index + 1}: {spike.start_time.strftime("%Y-%m-%d %H:%M")}{title_suffix}',
+        ax.set_title(f'Spike {user_spike_num}: {spike.start_time.strftime("%Y-%m-%d %H:%M")}{title_suffix}',
                     fontsize=14, fontweight='bold')
         ax.legend(loc='upper right', fontsize=10)
         ax.grid(True, alpha=0.3)
@@ -160,7 +163,7 @@ class ChartGenerator:
         # Save figure
         timestamp_str = spike.start_time.strftime('%Y-%m-%d_%H%M')
         norm_suffix = '_normalized' if normalize else ''
-        filename = f'spike_{spike_index}_{timestamp_str}{norm_suffix}.png'
+        filename = f'spike_{user_spike_num}_{timestamp_str}{norm_suffix}.png'
         filepath = self.output_dir / filename
         
         plt.savefig(filepath, dpi=self.dpi, bbox_inches='tight')
