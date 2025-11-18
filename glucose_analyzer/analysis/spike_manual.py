@@ -232,3 +232,96 @@ def add_spike_interactive(date_str: str, csv_path: Path, json_path: Path):
     """Entry point for adding spikes interactively"""
     editor = SpikeEditor(date_str, csv_path, json_path)
     editor.run()
+
+def load_manual_spikes(json_path: Path, cgm_data):
+    """
+    Load manual spikes from JSON and create Spike objects with CGM data
+
+    Args:
+        json_path: Path to spikes_manual.json
+        cgm_data: DataFrame with CGM data (from LibreViewParser)
+
+    Returns:
+        List of Spike objects with full metrics
+    """
+    from glucose_analyzer.analysis.spike_detector import Spike
+    from glucose_analyzer.analysis.auc_calculator import SpikeData, analyze_spike
+
+    if not json_path.exists():
+        return []
+
+    with open(json_path, 'r') as f:
+        spike_entries = json.load(f)
+
+    if not spike_entries:
+        return []
+
+    spikes = []
+
+    for entry in spike_entries:
+        start_time = datetime.fromisoformat(entry['start'])
+        end_time = datetime.fromisoformat(entry['end'])
+        
+        # Extract CGM data for this spike's time range
+        mask = (cgm_data['timestamp'] >= start_time) & (cgm_data['timestamp'] <= end_time)
+        spike_data_df = cgm_data[mask].copy()
+        
+        if len(spike_data_df) == 0:
+            print(f"[WARNING] No CGM data found for spike {start_time} to {end_time}")
+            continue
+        
+        # Find key points in the spike
+        start_glucose = spike_data_df.iloc[0]['glucose']
+        end_glucose = spike_data_df.iloc[-1]['glucose']
+        
+        # Find peak
+        peak_idx = spike_data_df['glucose'].idxmax()
+        peak_time = spike_data_df.loc[peak_idx, 'timestamp']
+        peak_glucose = spike_data_df.loc[peak_idx, 'glucose']
+        
+        # Calculate metrics
+        magnitude = peak_glucose - start_glucose
+        duration = (end_time - start_time).total_seconds() / 60
+        time_to_peak = (peak_time - start_time).total_seconds() / 60
+        
+        # Create Spike object
+        spike = Spike(
+            start_time=start_time,
+            start_glucose=start_glucose,
+            peak_time=peak_time,
+            peak_glucose=peak_glucose,
+            end_time=end_time,
+            end_glucose=end_glucose,
+            duration_minutes=duration,
+            time_to_peak_minutes=time_to_peak,
+            magnitude=magnitude,
+            end_reason='manual',
+            baseline=start_glucose
+        )
+        
+        # Calculate AUC metrics
+        spike_data_df['minutes_from_start'] = (
+            (spike_data_df['timestamp'] - start_time).dt.total_seconds() / 60
+        )
+        
+        spike_data_obj = SpikeData(
+            timestamps=spike_data_df['minutes_from_start'].tolist(),
+            glucose=spike_data_df['glucose'].tolist(),
+            baseline=start_glucose,
+            peak=peak_glucose,
+            meal_time=start_time.isoformat(),
+            glycemic_load=0
+        )
+        
+        auc_results = analyze_spike(spike_data_obj)
+        
+        # Update spike with AUC metrics
+        spike.auc_0 = auc_results.auc_0
+        spike.auc_70 = auc_results.auc_70
+        spike.auc_relative = auc_results.auc_relative
+        spike.normalized_auc = auc_results.normalized_auc
+        spike.recovery_time = auc_results.recovery_time
+        
+        spikes.append(spike)
+
+    return spikes

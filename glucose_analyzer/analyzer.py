@@ -131,7 +131,7 @@ class GlucoseAnalyzer:
                 self.detected_spikes
             )
             
-            match_stats = self.meal_matcher.get_match_stats(self.match_results)
+            match_stats = self.meal_matcher.get_stats(self.match_results)
             
             print(f"\n[OK] Matched {match_stats['matched_count']} meal(s) to spikes")
             
