@@ -255,7 +255,7 @@ class ChartGenerator:
                 ])
             
             ax.plot(minutes, glucose, color=self.colors['group1'], 
-                   alpha=0.2, linewidth=1)
+                   alpha=0.2, linewidth=2.5)
         
         # Calculate and plot mean curve
         # Simplified: just show the range
@@ -365,7 +365,7 @@ class ChartGenerator:
                 ])
             
             ax.plot(minutes, glucose, color=self.colors['group1'], 
-                   alpha=0.15, linewidth=1)
+                   alpha=0.2, linewidth=2.5)
         
         # Plot Group 2 spikes
         for match in matches2:
@@ -387,7 +387,7 @@ class ChartGenerator:
                 ])
             
             ax.plot(minutes, glucose, color=self.colors['group2'], 
-                   alpha=0.15, linewidth=1)
+                   alpha=0.2, linewidth=2.5)
         
         # Add legend patches for groups
         group1_patch = mpatches.Patch(color=self.colors['group1'], 

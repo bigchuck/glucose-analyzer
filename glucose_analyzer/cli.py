@@ -160,7 +160,10 @@ class CLI:
             return
         
         try:
-            group_index = int(args[0])
+            group_index = int(args[0]) - 1
+            if group_index < 0:
+                print("[ERROR] Group index must be 1 or greater")
+                return
         except ValueError:
             print("[ERROR] Group index must be a number")
             return
@@ -177,8 +180,11 @@ class CLI:
             return
         
         try:
-            group1_index = int(args[0])
-            group2_index = int(args[1])
+            group1_index = int(args[0]) - 1
+            group2_index = int(args[1]) - 1
+            if group1_index < 0 or group2_index < 0:
+                print("[ERROR] Group indices must be 1 or greater")
+                return
         except ValueError:
             print("[ERROR] Group indices must be numbers")
             return
@@ -195,7 +201,10 @@ class CLI:
             return
         
         try:
-            group_index = int(args[0])
+            group_index = int(args[0]) - 1
+            if group_index < 0:
+                print("[ERROR] Group index must be 1 or greater")
+                return
         except ValueError:
             print("[ERROR] Group index must be a number")
             return
@@ -228,7 +237,7 @@ class CLI:
         print("-" * 70)
         for i, group in enumerate(groups):
             end_str = group['end'] if group['end'] else "OPEN"
-            print(f"  {i}: {group['start']} to {end_str}")
+            print(f"  {i+1}: {group['start']} to {end_str}")
             print(f"     {group['description']}")
     
     def cmd_list_spikes(self, args):
@@ -612,10 +621,10 @@ class CLI:
   chart group <n> [--normalize]      Chart group overlay
   chart compare <n1> <n2> [--normalize]  Chart group comparison
   chart scatter <n>                  Chart GL vs AUC scatter
-  timeline <date>                    24-hour chart for specific date)
-  timeline-range <start> <end>       Charts for date range)
-  overview <start> <end>             Multi-day condensed overview)
-  today                              Timeline for current date)
+  timeline <date>                    24-hour chart for specific date
+  timeline-range <start> <end>       Charts for date range
+  overview <start> <end>             Multi-day condensed overview
+  today                              Timeline for current date
   help                               Show this help
   quit                               Exit program
         """)
@@ -889,7 +898,10 @@ class CLI:
             return
         
         try:
-            group_index = int(args[0])
+            group_index = int(args[0]) - 1
+            if group_index < 0:
+                print("[ERROR] Group index must be 1 or greater")
+                return
         except ValueError:
             print("[ERROR] Group index must be a number")
             return
@@ -923,8 +935,11 @@ class CLI:
             return
         
         try:
-            group1_index = int(args[0])
-            group2_index = int(args[1])
+            group1_index = int(args[0]) - 1
+            group2_index = int(args[1]) - 1
+            if group1_index < 0 or group2_index < 0:
+                print("[ERROR] Group indices must be 1 or greater")
+                return
         except ValueError:
             print("[ERROR] Group indices must be numbers")
             return

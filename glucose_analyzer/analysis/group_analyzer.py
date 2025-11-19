@@ -29,10 +29,12 @@ class GroupStats:
         self.recovery_time = self._calc_stats([m.spike.recovery_time for m in matches if m.spike.recovery_time])
         self.magnitude = self._calc_stats([m.spike.magnitude for m in matches])
         self.time_to_peak = self._calc_stats([m.spike.time_to_peak_minutes for m in matches])
-        self.delay_minutes = self._calc_stats([m.delay_minutes for m in matches])
+        # Use first meal's delay (primary meal) for delay statistics
+        self.delay_minutes = self._calc_stats([m.meal_delays[0] if m.meal_delays else 0 for m in matches])
         
         # Additional metrics
-        self.gl = self._calc_stats([m.meal['gl'] for m in matches])
+        # Use total GL from all contributing meals
+        self.gl = self._calc_stats([m.total_gl for m in matches])
         self.duration = self._calc_stats([m.spike.duration_minutes for m in matches])
         self.peak_glucose = self._calc_stats([m.spike.peak_glucose for m in matches])
         
@@ -203,14 +205,21 @@ class GroupAnalyzer:
             list: Filtered matches
         """
         start_dt = datetime.strptime(group_info['start'], "%Y-%m-%d:%H:%M")
-        end_dt = datetime.strptime(group_info['end'], "%Y-%m-%d:%H:%M")
-        
+                
+        # Handle OPEN groups (no end date yet) - use far future date
+        if group_info['end'] is None:
+            end_dt = datetime(9999, 12, 31, 23, 59)
+        else:
+            end_dt = datetime.strptime(group_info['end'], "%Y-%m-%d:%H:%M")
+
         filtered = []
         for match in matches:
-            meal_dt = datetime.strptime(match.meal['timestamp'], "%Y-%m-%d:%H:%M")
-            if start_dt <= meal_dt <= end_dt:
-                filtered.append(match)
-        
+            # Use first meal's timestamp (earliest contributing meal)
+            if match.meals:
+                meal_dt = datetime.strptime(match.meals[0]['timestamp'], "%Y-%m-%d:%H:%M")
+                if start_dt <= meal_dt <= end_dt:
+                    filtered.append(match)
+ 
         return filtered
     
     def filter_by_gl_range(self, matches: list, min_gl: float, max_gl: float) -> list:
@@ -225,7 +234,7 @@ class GroupAnalyzer:
         Returns:
             list: Filtered matches
         """
-        return [m for m in matches if min_gl <= m.meal['gl'] <= max_gl]
+        return [m for m in matches if min_gl <= m.total_gl <= max_gl]
     
     def filter_unmatched_by_group(self, items: list, group_info: dict, 
                                   timestamp_key: str = 'timestamp') -> list:
@@ -241,7 +250,12 @@ class GroupAnalyzer:
             list: Filtered items
         """
         start_dt = datetime.strptime(group_info['start'], "%Y-%m-%d:%H:%M")
-        end_dt = datetime.strptime(group_info['end'], "%Y-%m-%d:%H:%M")
+        
+        # Handle OPEN groups (no end date yet) - use far future date
+        if group_info['end'] is None:
+            end_dt = datetime(9999, 12, 31, 23, 59)
+        else:
+            end_dt = datetime.strptime(group_info['end'], "%Y-%m-%d:%H:%M")
         
         filtered = []
         for item in items:
