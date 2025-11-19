@@ -150,26 +150,32 @@ class MealMatcher:
         contributing.sort(key=lambda m: m['datetime'])
         
         return contributing
-    
-    def get_stats(self, matched):
+
+    def get_stats(self, match_results):
         """
         Get statistics about matches
         
         Args:
-            matched: List of MealSpikeMatch objects or dicts
+            match_results: Dict with 'matched', 'unmatched_spikes', 'unmatched_meals' keys
             
         Returns:
             dict: Statistics
         """
+        matched = match_results.get('matched', [])
+        unmatched_spikes = match_results.get('unmatched_spikes', [])
+        unmatched_meals = match_results.get('unmatched_meals', [])
+        
         if not matched:
             return {
-                'total_matches': 0,
-                'single_meal_spikes': 0,
-                'multi_meal_spikes': 0,
-                'avg_meals_per_spike': 0,
-                'avg_total_gl': 0,
-                'avg_magnitude': 0,
-                'avg_earliest_delay': 0
+                'matched_count': 0,
+                'unmatched_spikes': len(unmatched_spikes),
+                'unmatched_meals': len(unmatched_meals),
+                'complex_events': 0,
+                'avg_delay': 0,
+                'min_delay': 0,
+                'max_delay': 0,
+                'avg_gl': 0,
+                'avg_magnitude': 0
             }
         
         # Helper function to safely get attribute from object or dict
@@ -178,12 +184,11 @@ class MealMatcher:
                 return item.get(attr)
             return getattr(item, attr, None)
         
-        # Count single vs multi-meal spikes
-        single_meal = sum(1 for m in matched if get_val(m, 'meal_count') == 1)
-        multi_meal = sum(1 for m in matched if get_val(m, 'meal_count') > 1)
+        # Count multi-meal spikes (complex events)
+        multi_meal = sum(1 for m in matched if (get_val(m, 'meal_count') or 0) > 1)
         
-        # Extract values
-        total_gl_values = [get_val(m, 'total_gl') for m in matched]
+        # Extract values with None handling
+        total_gl_values = [get_val(m, 'total_gl') or 0 for m in matched]
         
         # Handle magnitude - might be in spike object or dict
         magnitudes = []
@@ -199,21 +204,19 @@ class MealMatcher:
         earliest_delays = []
         for m in matched:
             delays = get_val(m, 'meal_delays')
-            if delays:
+            if delays and len(delays) > 0:
                 earliest_delays.append(min(delays))
         
         stats = {
-            'total_matches': len(matched),
-            'single_meal_spikes': single_meal,
-            'multi_meal_spikes': multi_meal,
-            'avg_meals_per_spike': sum(get_val(m, 'meal_count') or 0 for m in matched) / len(matched),
-            'avg_total_gl': sum(total_gl_values) / len(total_gl_values) if total_gl_values else 0,
-            'min_gl': min(total_gl_values) if total_gl_values else 0,
-            'max_gl': max(total_gl_values) if total_gl_values else 0,
-            'avg_magnitude': sum(magnitudes) / len(magnitudes) if magnitudes else 0,
-            'avg_earliest_delay': sum(earliest_delays) / len(earliest_delays) if earliest_delays else 0,
+            'matched_count': len(matched),
+            'unmatched_spikes': len(unmatched_spikes),
+            'unmatched_meals': len(unmatched_meals),
+            'complex_events': multi_meal,
+            'avg_delay': sum(earliest_delays) / len(earliest_delays) if earliest_delays else 0,
             'min_delay': min(earliest_delays) if earliest_delays else 0,
-            'max_delay': max(earliest_delays) if earliest_delays else 0
+            'max_delay': max(earliest_delays) if earliest_delays else 0,
+            'avg_gl': sum(total_gl_values) / len(total_gl_values) if total_gl_values else 0,
+            'avg_magnitude': sum(magnitudes) / len(magnitudes) if magnitudes else 0
         }
         
         return stats

@@ -46,14 +46,13 @@ class TimelineVisualizer:
         # Define the 24-hour window
         day_start = date.replace(hour=0, minute=0, second=0, microsecond=0)
         day_end = day_start + timedelta(days=1)
-        
-        # Filter CGM data for this day
-        day_cgm = [
-            r for r in cgm_data 
-            if day_start <= r['timestamp'] <= day_end
+
+        # Filter DataFrame by date range
+        day_cgm = cgm_data[
+            cgm_data['timestamp'].dt.date == day_start.date()
         ]
         
-        if not day_cgm:
+        if day_cgm.empty:
             print(f"No CGM data found for {date.strftime('%Y-%m-%d')}")
             return None
         
@@ -67,7 +66,13 @@ class TimelineVisualizer:
         # Filter matches for this day
         day_matches = []
         for match in matches:
-            if day_start <= match.spike.start_time < day_end:
+            # Handle both object and dict format
+            if isinstance(match, dict):
+                spike_time = datetime.strptime(match['spike']['start_time'], '%Y-%m-%d %H:%M:%S')
+            else:
+                spike_time = match.spike.start_time
+            
+            if day_start <= spike_time < day_end:
                 day_matches.append(match)
         
         # Filter unmatched spikes for this day
@@ -80,8 +85,8 @@ class TimelineVisualizer:
         fig, ax = plt.subplots(figsize=(16, 8))
         
         # Extract CGM times and glucose values
-        times = [r['timestamp'] for r in day_cgm]
-        glucose = [r['glucose'] for r in day_cgm]
+        times = day_cgm['timestamp'].tolist()
+        glucose = day_cgm['glucose'].tolist()
         
         # Plot glucose trace
         ax.plot(times, glucose, 'b-', linewidth=2, label='Glucose', zorder=1)
@@ -111,11 +116,11 @@ class TimelineVisualizer:
             spike = match.spike
             # Different colors for single vs multi-meal
             if match.meal_count == 1:
-                color = 'yellow'
-                alpha = 0.2
+                color = 'lightblue'
+                alpha = 0.3
                 label_prefix = 'Single meal'
             else:
-                color = 'orange'
+                color = 'lightblue'
                 alpha = 0.3
                 label_prefix = f'{match.meal_count} meals'
             
@@ -145,7 +150,7 @@ class TimelineVisualizer:
         ax.set_xlabel('Time', fontsize=12, fontweight='bold')
         ax.set_ylabel('Glucose (mg/dL)', fontsize=12, fontweight='bold')
         ax.set_title(f'24-Hour Glucose Timeline - {date.strftime("%Y-%m-%d")}', 
-                    fontsize=14, fontweight='bold')
+                    fontsize=14, fontweight='bold', loc='left')
         
         # Format x-axis to show hours
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
@@ -160,8 +165,7 @@ class TimelineVisualizer:
         legend_elements = [
             plt.Line2D([0], [0], color='b', linewidth=2, label='Glucose'),
             plt.Line2D([0], [0], color='g', linestyle='--', linewidth=2, label='Meal (GL)'),
-            Patch(facecolor='yellow', alpha=0.3, label='Single-meal spike'),
-            Patch(facecolor='orange', alpha=0.3, label='Multi-meal spike'),
+            Patch(facecolor='lightblue', alpha=0.3, label='Spike'),
             Patch(facecolor='red', alpha=0.3, label='Unexplained spike')
         ]
         ax.legend(handles=legend_elements, loc='upper right', fontsize=10)
@@ -227,12 +231,10 @@ class TimelineVisualizer:
         end = datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)
         
         # Filter data for date range
-        range_cgm = [
-            r for r in cgm_data
-            if start <= r['timestamp'] < end
-        ]
+        range_cgm = cgm_data[(cgm_data['timestamp'].dt.date >= start.date()) & 
+                    (cgm_data['timestamp'].dt.date < end.date())]
         
-        if not range_cgm:
+        if range_cgm.empty:
             print(f"No CGM data found for range {start_date} to {end_date}")
             return None
         
@@ -247,8 +249,8 @@ class TimelineVisualizer:
         fig, ax = plt.subplots(figsize=(20, 6))
         
         # Plot glucose
-        times = [r['timestamp'] for r in range_cgm]
-        glucose = [r['glucose'] for r in range_cgm]
+        times = range_cgm['timestamp'].tolist()
+        glucose = range_cgm['glucose'].tolist()
         ax.plot(times, glucose, 'b-', linewidth=1, label='Glucose')
         
         # Add meal markers (simpler for multi-day)
@@ -262,7 +264,7 @@ class TimelineVisualizer:
         ax.set_xlabel('Date/Time', fontsize=12, fontweight='bold')
         ax.set_ylabel('Glucose (mg/dL)', fontsize=12, fontweight='bold')
         ax.set_title(f'Multi-Day Glucose Overview - {start_date} to {end_date}', 
-                    fontsize=14, fontweight='bold')
+                    fontsize=14, fontweight='bold', loc='left')
         
         # Format x-axis
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d %H:%M'))

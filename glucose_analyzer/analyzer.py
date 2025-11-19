@@ -140,14 +140,23 @@ class GlucoseAnalyzer:
                 print("-" * 80)
                 for i, match in enumerate(self.match_results['matched'], 1):
                     meal_str = ", ".join([f"{m['timestamp']} (GL={m['gl']})" for m in match.meals])
-                    print(f"Meals: {meal_str} (Total GL={match.total_gl})")
-                    print(f"   Spike: {match.spike.start_time.strftime('%Y-%m-%d %H:%M')} "
+                    # Handle single vs multi-meal display
+                    if match.meal_count == 1:
+                        print(f"  Meal: {match.meals[0]['timestamp']} (GL={match.total_gl})")
+                    else:
+                        meal_times = [m['timestamp'] for m in match.meals]
+                        print(f"  Meals: {match.meal_count} meals - {', '.join(meal_times)} (Total GL={match.total_gl})")
+                    print(f"  Spike: {match.spike.start_time.strftime('%Y-%m-%d %H:%M')} "
                         f"to {match.spike.end_time.strftime('%H:%M')}")
-                    print(f"   Delay: {match.delay_minutes:.0f} minutes")
+                    earliest_delay = min(match.meal_delays) if match.meal_delays else 0
+                    print(f"  Delay: {earliest_delay:.0f} minutes")
                     print(f"   Duration: {match.spike.duration_minutes:.0f} minutes")
                     print(f"   Peak: {match.spike.peak_glucose:.0f} mg/dL (+{match.spike.magnitude:.0f})")
-                    if match.is_complex:
-                        print(f"   [COMPLEX] {len(match.nearby_meals)} nearby meal(s)")
+                    if match.meal_count > 1:
+                        print(f"   [COMPLEX] {match.meal_count} contributing meals (total GL={match.total_gl}):")
+                        for i, meal in enumerate(match.meals):
+                            delay = match.meal_delays[i]
+                            print(f"    - {meal['timestamp']} (GL={meal['gl']}, {delay:.0f} min before spike)")
                     print(f"   AUC-relative: {match.spike.auc_relative:.0f} mg/dL*min, "
                         f"Normalized: {match.spike.normalized_auc:.3f}")
                     if match.spike.recovery_time:

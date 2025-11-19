@@ -109,8 +109,8 @@ class SpikeNormalizer:
         
         for match in matches:
             meal_info = {
-                'timestamp': match.meal['timestamp'],
-                'gl': match.meal['gl']
+                'timestamp': match.meals[0]['timestamp'] if match.meals else None,
+                'gl': match.meals[0]['gl'] if match.meals else None
             }
             
             try:

@@ -317,25 +317,29 @@ class CLI:
         print("=" * 80)
         for i, match in enumerate(matches):
             print(f"\nMatch {i+1}:")
-            print(f"  Meal:  {match.meal['timestamp']} (GL={match.meal['gl']})")
-            print(f"  Spike: {match.spike.start_time.strftime('%Y-%m-%d %H:%M')} "
-                  f"(+{match.delay_minutes:.0f} min delay)")
-            print(f"  Peak:  {match.spike.peak_time.strftime('%H:%M')} at {match.spike.peak_glucose:.0f} mg/dL "
-                  f"(+{match.spike.magnitude:.0f} mg/dL)")
+            # Display meal(s) - handle single or multiple meals
+            if match.meal_count == 1:
+                meal = match.meals[0]
+                delay = match.meal_delays[0]
+                print(f"  Meal:  {meal['timestamp']} (GL={meal['gl']})")
+                print(f"  Spike: {match.spike.start_time.strftime('%Y-%m-%d %H:%M')} "
+                      f"(+{delay:.0f} min delay)")
+            else:
+                print(f"  Meals: {match.meal_count} contributing meals (total GL={match.total_gl})")
+                for j, meal in enumerate(match.meals):
+                    delay = match.meal_delays[j]
+                    print(f"    {j+1}. {meal['timestamp']} (GL={meal['gl']}, +{delay:.0f} min before spike)")
+                print(f"  Spike: {match.spike.start_time.strftime('%Y-%m-%d %H:%M')}")
+            
+            # Display spike details
             print(f"  Peak:  {match.spike.peak_time.strftime('%H:%M')} at {match.spike.peak_glucose:.0f} mg/dL "
                   f"(+{match.spike.magnitude:.0f} mg/dL)")
             print(f"  AUC-relative: {match.spike.auc_relative:.0f} mg/dL*min, Normalized: {match.spike.normalized_auc:.3f}")
             if match.spike.recovery_time:
                 print(f"  Recovery: {match.spike.recovery_time:.0f} minutes")
             print(f"  End:   {match.spike.end_time.strftime('%H:%M')} at {match.spike.end_glucose:.0f} mg/dL")
-            print(f"  End:   {match.spike.end_time.strftime('%H:%M')} at {match.spike.end_glucose:.0f} mg/dL")
             print(f"  Duration: {match.spike.duration_minutes:.0f} minutes")
-            if match.is_complex:
-                print(f"  [COMPLEX] {len(match.nearby_meals)} nearby meal(s):")
-                for nearby in match.nearby_meals:
-                    print(f"    - {nearby['timestamp']} (GL={nearby['gl']}, "
-                          f"{nearby['minutes_apart']:.0f} min apart)")
-    
+   
     def cmd_list_unmatched(self, args):
         """List unmatched spikes and meals"""
         if not self.analyzer.match_results:
@@ -608,10 +612,10 @@ class CLI:
   chart group <n> [--normalize]      Chart group overlay
   chart compare <n1> <n2> [--normalize]  Chart group comparison
   chart scatter <n>                  Chart GL vs AUC scatter
-  timeline <date>                    24-hour chart for specific date")
-  timeline-range <start> <end>       Charts for date range")
-  overview <start> <end>             Multi-day condensed overview")
-  today                              Timeline for current date")
+  timeline <date>                    24-hour chart for specific date)
+  timeline-range <start> <end>       Charts for date range)
+  overview <start> <end>             Multi-day condensed overview)
+  today                              Timeline for current date)
   help                               Show this help
   quit                               Exit program
         """)
@@ -714,11 +718,11 @@ class CLI:
         Usage: timeline YYYY-MM-DD
         Example: timeline 2025-11-14
         """
-        if len(args) < 2:
+        if len(args) < 1:
             print("Usage: timeline YYYY-MM-DD")
             return
         
-        date_str = args[1]
+        date_str = args[0]
         
         # Validate date format
         try:
@@ -728,30 +732,27 @@ class CLI:
             return
         
         # Ensure analysis has been run
-        if not self.analyzer.matches:
+        if not self.analyzer.match_results:
             print("No analysis data. Run 'analyze' first.")
             return
         
         # Import visualizer
         from glucose_analyzer.visualization.timeline_visualizer import TimelineVisualizer
         
-        visualizer = TimelineVisualizer(self.config)
+        visualizer = TimelineVisualizer(self.analyzer.config)
         
         print(f"\nGenerating timeline for {date_str}...")
         
         chart_path = visualizer.plot_day_timeline(
             date=date_str,
-            cgm_data=self.analyzer.cgm_readings,
-            meals=self.data_manager.meals,
-            matches=self.analyzer.matches,
-            unmatched_spikes=self.analyzer.unmatched_spikes
+            cgm_data=self.analyzer.cgm_data,
+            meals=self.analyzer.data_manager.get_meals(),
+            matches=self.analyzer.match_results['matched'],
+            unmatched_spikes=self.analyzer.match_results['unmatched_spikes']
         )
         
         if chart_path:
             print(f"Timeline saved: {chart_path}")
-            print(f"Open with: xdg-open {chart_path}  # Linux")
-            print(f"         : open {chart_path}      # macOS")
-            print(f"         : start {chart_path}     # Windows")
         else:
             print("No data found for this date.")
 
@@ -761,13 +762,13 @@ class CLI:
         Usage: timeline-range YYYY-MM-DD YYYY-MM-DD
         Example: timeline-range 2025-11-01 2025-11-07
         """
-        if len(args) < 3:
+        if len(args) < 2:
             print("Usage: timeline-range START_DATE END_DATE")
             print("Example: timeline-range 2025-11-01 2025-11-07")
             return
         
-        start_date = args[1]
-        end_date = args[2]
+        start_date = args[0]
+        end_date = args[1]
         
         # Validate dates
         try:
@@ -777,39 +778,85 @@ class CLI:
             print("Invalid date format. Use YYYY-MM-DD")
             return
         
-        if not self.analyzer.matches:
+        if not self.analyzer.match_results:
             print("No analysis data. Run 'analyze' first.")
             return
         
         from glucose_analyzer.visualization.timeline_visualizer import TimelineVisualizer
         
-        visualizer = TimelineVisualizer(self.config)
+        visualizer = TimelineVisualizer(self.analyzer.config)
         
         print(f"\nGenerating timelines for {start_date} to {end_date}...")
         
         chart_paths = visualizer.plot_date_range(
             start_date=start_date,
             end_date=end_date,
-            cgm_data=self.analyzer.cgm_readings,
-            meals=self.data_manager.meals,
-            matches=self.analyzer.matches,
-            unmatched_spikes=self.analyzer.unmatched_spikes
+            cgm_data=self.analyzer.cgm_data,
+            meals=self.analyzer.data_manager.get_meals(),
+            matches=self.analyzer.match_results['matched'],
+            unmatched_spikes=self.analyzer.match_results['unmatched_spikes']
         )
         
         if chart_paths:
             print(f"\n{len(chart_paths)} timeline(s) generated:")
             for path in chart_paths:
                 print(f"  - {path}")
-            print(f"\nAll charts saved to: {self.config.get('output', 'charts_dir')}/")
+            print(f"\nAll charts saved to: {self.analyzer.config.get('output', 'charts_dir')}/")
         else:
             print("No data found for this date range.")
+
+    def cmd_overview(self, args):
+        """
+        Generate multi-day overview chart (condensed view)
+        Usage: overview START_DATE END_DATE
+        Example: overview 2025-11-01 2025-11-07
+        """
+        if len(args) < 2:
+            print("Usage: overview START_DATE END_DATE")
+            print("Example: overview 2025-11-01 2025-11-07")
+            return
+        
+        start_date = args[0]
+        end_date = args[1]
+        
+        # Validate dates
+        try:
+            datetime.strptime(start_date, '%Y-%m-%d')
+            datetime.strptime(end_date, '%Y-%m-%d')
+        except ValueError:
+            print("Invalid date format. Use YYYY-MM-DD")
+            return
+        
+        if not self.analyzer.match_results:
+            print("No analysis data. Run 'analyze' first.")
+            return
+        
+        from glucose_analyzer.visualization.timeline_visualizer import TimelineVisualizer
+        
+        visualizer = TimelineVisualizer(self.analyzer.config)
+        
+        print(f"\nGenerating overview for {start_date} to {end_date}...")
+        
+        chart_path = visualizer.plot_multi_day_overview(
+            start_date=start_date,
+            end_date=end_date,
+            cgm_data=self.analyzer.cgm_data,
+            meals=self.analyzer.data_manager.get_meals(),
+            matches=self.analyzer.match_results['matched']
+        )
+        
+        if chart_path:
+            print(f"Overview saved: {chart_path}")
+        else:
+            print("No data found for this date range.")
+
 
     def cmd_today(self, args):
         """
         Generate timeline for today's date
         Usage: today
         """
-        if not self.analyzer.matches:
+        if not self.analyzer.match_results:
             print("No analysis data. Run 'analyze' first.")
             return
         
@@ -818,16 +865,16 @@ class CLI:
         
         today = datetime.now().strftime('%Y-%m-%d')
         
-        visualizer = TimelineVisualizer(self.config)
+        visualizer = TimelineVisualizer(self.analyzer.config)
         
         print(f"\nGenerating timeline for today ({today})...")
         
         chart_path = visualizer.plot_day_timeline(
             date=today,
-            cgm_data=self.analyzer.cgm_readings,
-            meals=self.data_manager.meals,
-            matches=self.analyzer.matches,
-            unmatched_spikes=self.analyzer.unmatched_spikes
+            cgm_data=self.analyzer.cgm_data,
+            meals=self.analyzer.data_manager.get_meals(),
+            matches=self.analyzer.match_results['matched'],
+            unmatched_spikes=self.analyzer.match_results['unmatched_spikes']
         )
         
         if chart_path:
